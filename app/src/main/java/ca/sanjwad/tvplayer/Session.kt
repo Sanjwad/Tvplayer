@@ -13,6 +13,8 @@ object Session {
     /** Seasons per series id, so My List doesn't refetch them every visit. */
     /** Bumped when the full TV guide finishes loading, so guide rows refresh. */
     var guideVersion by androidx.compose.runtime.mutableIntStateOf(0)
+    /** Kept so returning to Search shows the last results. */
+    var lastSearch = ""
     @Volatile var tmdb: ca.sanjwad.tvplayer.stalker.TmdbClient? = null
     val seasonCache = java.util.concurrent.ConcurrentHashMap<String, List<ca.sanjwad.tvplayer.stalker.Season>>()
 }

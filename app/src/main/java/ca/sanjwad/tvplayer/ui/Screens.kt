@@ -293,11 +293,18 @@ private const val EDIT_ID = "__edit"
 private val Gold = Color(0xFFFFC94D)
 
 @Composable
-private fun SearchField(query: String, onChange: (String) -> Unit, hint: String) {
+fun SearchField(query: String, onChange: (String) -> Unit, hint: String, modifier: Modifier = Modifier) {
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
     OutlinedTextField(
         value = query, onValueChange = onChange, label = { Text(hint) },
-        singleLine = true, modifier = Modifier.fillMaxWidth(),
+        singleLine = true, modifier = modifier.fillMaxWidth(),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        // The keyboard's search key: close the keyboard and drop down into the results.
+        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = {
+            keyboard?.hide()
+            focus.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)
+        }),
     )
 }
 

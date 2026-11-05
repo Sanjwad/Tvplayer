@@ -64,7 +64,9 @@ fun HomeScreen(
     onOpen: (type: String, item: VodItem, seasonId: String?) -> Unit,
     onSettings: () -> Unit,
 ) {
-    val entries = listOf("📺   Live TV", "🎬   Movies", "🎞   TV Shows", "★   My List", "⚙   Settings")
+    // (label, section id) — ids stay stable so saved state keeps working.
+    val entries = listOf("🔍   Search" to 5, "📺   Live TV" to 0, "🎬   Movies" to 1, "🎞   TV Shows" to 2,
+        "★   My List" to 3, "⚙   Settings" to 4)
     val fr = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(150); runCatching { fr.requestFocus() } }
 
@@ -96,7 +98,7 @@ fun HomeScreen(
                 Text("tv", fontSize = 30.sp, fontWeight = FontWeight.Light, color = Color.White)
             }
             Spacer(Modifier.height(36.dp))
-            entries.forEachIndexed { i, label ->
+            entries.forEach { (label, i) ->
                 FocusBox(
                     onClick = { if (i == 4) onSettings() else onSection(i) },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
@@ -114,6 +116,7 @@ fun HomeScreen(
                 0 -> LiveScreen(live)
                 1 -> VodTab(movies) { onOpen(movies.type, it, null) }
                 2 -> VodTab(series) { onOpen(series.type, it, null) }
+                5 -> GlobalSearch(movies.type, series.type, onOpen)
                 else -> MyListScreen(onOpen)
             }
         }
@@ -320,6 +323,83 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                     }
                 }
             }
+        }
+    }
+}
+
+// ---------------- search everything ----------------
+
+@Composable
+fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, item: VodItem, seasonId: String?) -> Unit) {
+    val ctx = LocalContext.current
+    var query by remember { mutableStateOf(Session.lastSearch) }
+    var channels by remember { mutableStateOf<List<ca.sanjwad.tvplayer.stalker.Channel>?>(emptyList()) }
+    var movies by remember { mutableStateOf<List<VodItem>?>(emptyList()) }
+    var shows by remember { mutableStateOf<List<VodItem>?>(emptyList()) }
+    val fr = remember { FocusRequester() }
+    val (hero, setHero) = rememberHero()
+
+    LaunchedEffect(query) {
+        Session.lastSearch = query
+        val q = query.trim()
+        if (q.length < 2) { channels = emptyList(); movies = emptyList(); shows = emptyList(); return@LaunchedEffect }
+        delay(500)
+        channels = null; movies = null; shows = null
+        val c = Session.client ?: return@LaunchedEffect
+        val lower = q.lowercase()
+        channels = withContext(Dispatchers.IO) {
+            runCatching { c.liveChannels().filter { it.name.lowercase().contains(lower) || it.number.toString() == q }.take(40) }
+                .getOrDefault(emptyList())
+        }
+        movies = withContext(Dispatchers.IO) { runCatching { c.search(movieType, q).filterNot { it.isSeries } }.getOrDefault(emptyList()) }
+        shows = withContext(Dispatchers.IO) {
+            runCatching { c.search(showType, q).let { l -> if (showType == movieType) l.filter { it.isSeries } else l } }.getOrDefault(emptyList())
+        }
+    }
+    LaunchedEffect(Unit) { delay(200); runCatching { fr.requestFocus() } }
+
+    Column(Modifier.fillMaxSize()) {
+        SearchField(query, { query = it }, "Search channels, movies and TV shows", Modifier.focusRequester(fr))
+        Spacer(Modifier.height(10.dp))
+        Hero(hero)
+        val q = query.trim()
+        if (q.length < 2) {
+            CenterMessage("Type or speak at least two letters", "Results from Live TV, Movies and TV Shows appear here.")
+            return@Column
+        }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            item {
+                Column {
+                    Text("📺  Live TV", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
+                    val ch = channels
+                    when {
+                        ch == null -> Text("Searching…", color = TextDim, fontSize = 14.sp, modifier = Modifier.padding(start = 4.dp))
+                        ch.isEmpty() -> Text("No channels match", color = TextDim, fontSize = 14.sp, modifier = Modifier.padding(start = 4.dp))
+                        else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(ch.size) { i ->
+                                val c = ch[i]
+                                FocusBox(onClick = {
+                                    Session.channels = ch
+                                    ctx.startActivity(android.content.Intent(ctx, ca.sanjwad.tvplayer.PlayerActivity::class.java).putExtra("live_index", i))
+                                }, modifier = Modifier.width(150.dp), shape = RoundedCornerShape(8.dp)) {
+                                    Column(Modifier.padding(8.dp)) {
+                                        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(6.dp)).background(Bg)) {
+                                            AsyncImage(model = c.logo, contentDescription = null, modifier = Modifier.fillMaxSize().padding(10.dp),
+                                                contentScale = ContentScale.Fit)
+                                        }
+                                        Spacer(Modifier.height(4.dp))
+                                        Text((if (c.number > 0) "${c.number}  " else "") + c.name, fontSize = 12.sp, color = Color.White,
+                                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            item { PosterRow("🎬  Movies", movies, setHero, { onOpen(movieType, it, null) }) }
+            item { PosterRow("🎞  TV Shows", shows, setHero, { onOpen(showType, it, null) }) }
         }
     }
 }
