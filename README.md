@@ -1,6 +1,6 @@
 # Sanj TV
 
-A personal Android TV player for Stalker (MAC-based) IPTV portals. Works on
+A personal Android TV player for Xtream IPTV logins. Works on
 NVIDIA Shield, Fire TV Stick and Onn (Google TV) devices.
 
 ## Install or update
@@ -16,7 +16,7 @@ Every push to `main` builds a new APK. The latest one is always at:
    - Shield / Onn (Google TV): Settings → Apps → Security & restrictions → Unknown sources → Downloader → On
      (on Google TV you may first need Settings → System → About → click *Android TV OS build* 7 times).
 3. Open Downloader, type the address above, and install.
-4. Open **TV Player**, enter your provider's portal URL and the MAC address registered with them.
+4. Open **Sanj TV** and enter your provider's Xtream server, username and password (or paste an M3U link).
 
 Updates install over the top and keep your settings.
 

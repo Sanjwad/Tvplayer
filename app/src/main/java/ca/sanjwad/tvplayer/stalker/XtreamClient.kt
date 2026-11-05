@@ -58,7 +58,7 @@ class XtreamClient(serverUrl: String, private val user: String, private val pass
             addQueryParameter("password", pass)
             params.forEach { (k, v) -> addQueryParameter(k, v) }
         }.build()
-        val req = Request.Builder().url(url).header("User-Agent", StalkerClient.UA).build()
+        val req = Request.Builder().url(url).header("User-Agent", Net.UA).build()
         http.newCall(req).execute().use { r ->
             if (r.code == 401 || r.code == 403) throw IOException("The server refused this username or password.")
             if (!r.isSuccessful) throw IOException("The server replied with error ${r.code}.")
@@ -125,7 +125,7 @@ class XtreamClient(serverUrl: String, private val user: String, private val pass
         val key = "$type/$categoryId"
         synchronized(listCache) { listCache[key]?.let { return it } }
         val list = if (type == "series") {
-            api("action" to "get_series", "category_id" to categoryId).objects().mapNotNull {
+            seriesApi(categoryId).objects().mapNotNull {
                 val id = it.str("series_id").ifEmpty { return@mapNotNull null }
                 VodItem(
                     id = id, name = it.str("name"), description = it.str("plot"),
@@ -135,7 +135,7 @@ class XtreamClient(serverUrl: String, private val user: String, private val pass
                 )
             }
         } else {
-            api("action" to "get_vod_streams", "category_id" to categoryId).objects().mapNotNull {
+            vodApi(categoryId).objects().mapNotNull {
                 val id = it.str("stream_id").ifEmpty { return@mapNotNull null }
                 val ext = it.str("container_extension").ifEmpty { "mp4" }
                 VodItem(
@@ -148,6 +148,18 @@ class XtreamClient(serverUrl: String, private val user: String, private val pass
         }
         synchronized(listCache) { listCache[key] = list }
         return list
+    }
+
+    private fun seriesApi(cat: String) =
+        if (cat == "*") api("action" to "get_series") else api("action" to "get_series", "category_id" to cat)
+
+    private fun vodApi(cat: String) =
+        if (cat == "*") api("action" to "get_vod_streams") else api("action" to "get_vod_streams", "category_id" to cat)
+
+    override fun search(type: String, query: String): List<VodItem> {
+        val words = query.lowercase().split(" ").filter { it.isNotBlank() }
+        if (words.isEmpty()) return emptyList()
+        return fullList(type, "*").filter { item -> val n = item.name.lowercase(); words.all { it in n } }.take(300)
     }
 
     override fun vodPage(type: String, categoryId: String, page: Int): Page {

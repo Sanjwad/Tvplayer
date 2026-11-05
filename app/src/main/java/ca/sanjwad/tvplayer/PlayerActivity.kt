@@ -22,7 +22,7 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
-import ca.sanjwad.tvplayer.stalker.StalkerClient
+import ca.sanjwad.tvplayer.stalker.Net
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -43,7 +43,7 @@ class PlayerActivity : ComponentActivity() {
     // Some video servers only accept certain players. For movies/episodes, try these in turn
     // when refused, and remember the one that worked.
     private val agents = listOf(
-        StalkerClient.UA,
+        Net.UA,
         "Lavf/58.76.100",
         "VLC/3.0.20 LibVLC/3.0.20",
         "okhttp/4.12.0",

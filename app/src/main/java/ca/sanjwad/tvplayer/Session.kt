@@ -12,19 +12,6 @@ object Session {
 
 class Prefs(ctx: Context) {
     private val sp = ctx.getSharedPreferences("settings", Context.MODE_PRIVATE)
-    var portal: String
-        get() = sp.getString("portal", "").orEmpty()
-        set(v) = sp.edit().putString("portal", v).apply()
-    var mac: String
-        get() = sp.getString("mac", "").orEmpty()
-        set(v) = sp.edit().putString("mac", v).apply()
-    var serial: String
-        get() = sp.getString("serial", "").orEmpty()
-        set(v) = sp.edit().putString("serial", v).apply()
-    /** "portal" (Stalker, MAC) or "xtream" (username/password). */
-    var mode: String
-        get() = sp.getString("mode", "portal").orEmpty()
-        set(v) = sp.edit().putString("mode", v).apply()
     var xtServer: String
         get() = sp.getString("xt_server", "").orEmpty()
         set(v) = sp.edit().putString("xt_server", v).apply()
@@ -35,11 +22,5 @@ class Prefs(ctx: Context) {
         get() = sp.getString("xt_pass", "").orEmpty()
         set(v) = sp.edit().putString("xt_pass", v).apply()
     val isConfigured: Boolean
-        get() = if (mode == "xtream") xtServer.isNotBlank() && xtUser.isNotBlank() else portal.isNotBlank()
-    var deviceId: String
-        get() = sp.getString("device_id", "").orEmpty()
-        set(v) = sp.edit().putString("device_id", v).apply()
-    var deviceId2: String
-        get() = sp.getString("device_id2", "").orEmpty()
-        set(v) = sp.edit().putString("device_id2", v).apply()
+        get() = xtServer.isNotBlank() && xtUser.isNotBlank() && xtPass.isNotBlank()
 }

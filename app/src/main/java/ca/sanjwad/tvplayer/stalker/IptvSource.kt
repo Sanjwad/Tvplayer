@@ -20,6 +20,9 @@ interface IptvSource {
     fun seasons(type: String, item: VodItem): List<Season>
     fun episodes(type: String, item: VodItem, season: Season): List<Episode>
 
+    /** Titles in a section ("vod" or "series") whose name matches [query]. */
+    fun search(type: String, query: String): List<VodItem>
+
     /** Extra details for a movie (description, year, rating) when the list didn't include them. */
     fun movieInfo(item: VodItem): VodItem = item
 

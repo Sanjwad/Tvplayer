@@ -46,10 +46,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ca.sanjwad.tvplayer.Library
 import ca.sanjwad.tvplayer.PlayerActivity
 import ca.sanjwad.tvplayer.Prefs
 import ca.sanjwad.tvplayer.Session
@@ -58,7 +60,6 @@ import ca.sanjwad.tvplayer.stalker.Episode
 import ca.sanjwad.tvplayer.stalker.Genre
 import ca.sanjwad.tvplayer.stalker.Season
 import ca.sanjwad.tvplayer.stalker.IptvSource
-import ca.sanjwad.tvplayer.stalker.StalkerClient
 import ca.sanjwad.tvplayer.stalker.XtreamClient
 import ca.sanjwad.tvplayer.stalker.VodItem
 import coil.compose.AsyncImage
@@ -75,10 +76,11 @@ class LiveState {
     var genres by mutableStateOf<List<Genre>>(emptyList())
     var all by mutableStateOf<List<Channel>>(emptyList())
     var genre by mutableStateOf("*")
+    var query by mutableStateOf("")
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
     var loaded = false
-    fun reset() { genres = emptyList(); all = emptyList(); genre = "*"; error = null; loaded = false }
+    fun reset() { genres = emptyList(); all = emptyList(); genre = "*"; query = ""; error = null; loaded = false }
 }
 
 /** [kind] is the tab ("movies" or "series"); [type] is the portal section actually used for it. */
@@ -93,7 +95,11 @@ class VodState(val kind: String) {
     var error by mutableStateOf<String?>(null)
     var catsLoaded = false
     var job: Job? = null
+    var query by mutableStateOf("")
+    var results by mutableStateOf<List<VodItem>>(emptyList())
+    var searching by mutableStateOf(false)
     fun reset() {
+        query = ""; results = emptyList(); searching = false
         categories = emptyList(); category = null; items = emptyList(); page = 0; total = 0
         error = null; catsLoaded = false; job?.cancel(); job = null; loading = false
     }
@@ -140,12 +146,6 @@ fun App() {
 
 @Composable
 fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: () -> Unit) {
-    var mode by remember { mutableStateOf(prefs.mode) }
-    var portal by remember { mutableStateOf(prefs.portal) }
-    var mac by remember { mutableStateOf(prefs.mac.ifBlank { "00:1A:79:" }) }
-    var serial by remember { mutableStateOf(prefs.serial) }
-    var dev1 by remember { mutableStateOf(prefs.deviceId) }
-    var dev2 by remember { mutableStateOf(prefs.deviceId2) }
     var xtServer by remember { mutableStateOf(prefs.xtServer) }
     var xtUser by remember { mutableStateOf(prefs.xtUser) }
     var xtPass by remember { mutableStateOf(prefs.xtPass) }
@@ -160,93 +160,38 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
     ) {
         Text("Sanj TV", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Accent)
         Spacer(Modifier.height(8.dp))
-        Text("How does your provider log you in?", fontSize = 18.sp, color = TextDim)
-        Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            FocusBox(onClick = { mode = "xtream"; err = null }, selected = mode == "xtream", shape = RoundedCornerShape(20.dp)) {
-                Text("Xtream (username & password)", Modifier.padding(horizontal = 18.dp, vertical = 10.dp), fontSize = 17.sp, color = Color.White)
-            }
-            FocusBox(onClick = { mode = "portal"; err = null }, selected = mode == "portal", shape = RoundedCornerShape(20.dp)) {
-                Text("Portal (MAC address)", Modifier.padding(horizontal = 18.dp, vertical = 10.dp), fontSize = 17.sp, color = Color.White)
-            }
-        }
-        Spacer(Modifier.height(20.dp))
-
-        if (mode == "xtream") {
-            OutlinedTextField(
-                value = xtServer, onValueChange = { xtServer = it },
-                label = { Text("Server (e.g. http://xt.example.com) or full M3U link") },
-                singleLine = true, modifier = w,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            )
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = xtUser, onValueChange = { xtUser = it.trim() },
-                label = { Text("Username") }, singleLine = true, modifier = w,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-            )
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = xtPass, onValueChange = { xtPass = it.trim() },
-                label = { Text("Password") }, singleLine = true, modifier = w,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-            )
-        } else {
-            OutlinedTextField(
-                value = portal, onValueChange = { portal = it },
-                label = { Text("Portal URL (e.g. http://example.com:8080/c/)") },
-                singleLine = true, modifier = w,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            )
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = mac, onValueChange = { mac = it.uppercase() },
-                label = { Text("MAC address") }, singleLine = true, modifier = w,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-            )
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = serial, onValueChange = { serial = it },
-                label = { Text("Serial number (optional, copy from TiVimate)") },
-                singleLine = true, modifier = w,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-            )
-            Spacer(Modifier.height(12.dp))
-            Row(w, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(value = dev1, onValueChange = { dev1 = it },
-                    label = { Text("Device ID (optional)") }, singleLine = true, modifier = Modifier.weight(1f))
-                OutlinedTextField(value = dev2, onValueChange = { dev2 = it },
-                    label = { Text("Device ID 2 (optional)") }, singleLine = true, modifier = Modifier.weight(1f))
-            }
-        }
+        Text("Enter the Xtream login from your provider", fontSize = 18.sp, color = TextDim)
+        Spacer(Modifier.height(24.dp))
+        OutlinedTextField(
+            value = xtServer, onValueChange = { xtServer = it },
+            label = { Text("Server (e.g. http://xt.example.com) or full M3U link") },
+            singleLine = true, modifier = w,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+        )
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = xtUser, onValueChange = { xtUser = it.trim() },
+            label = { Text("Username") }, singleLine = true, modifier = w,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+        )
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = xtPass, onValueChange = { xtPass = it.trim() },
+            label = { Text("Password") }, singleLine = true, modifier = w,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+        )
         err?.let {
             Spacer(Modifier.height(12.dp))
             Text(it, color = ErrorRed, fontSize = 16.sp)
         }
         Spacer(Modifier.height(24.dp))
         TvButton("Save and connect", onClick = {
-            if (mode == "xtream") {
-                var srv = xtServer.trim(); var u = xtUser; var pw = xtPass
-                XtreamClient.parseM3u(srv)?.let { (a, b, c) -> srv = a; u = b; pw = c; xtServer = a; xtUser = b; xtPass = c }
-                when {
-                    srv.isBlank() -> err = "Enter the server address."
-                    u.isBlank() || pw.isBlank() -> err = "Enter the username and password."
-                    else -> {
-                        prefs.mode = "xtream"; prefs.xtServer = srv; prefs.xtUser = u; prefs.xtPass = pw
-                        onSaved()
-                    }
-                }
-            } else {
-                val m = mac.trim()
-                when {
-                    portal.isBlank() -> err = "Enter the portal URL."
-                    !Regex("([0-9A-F]{2}:){5}[0-9A-F]{2}").matches(m) -> err = "MAC should look like 00:1A:79:12:34:56"
-                    else -> {
-                        prefs.mode = "portal"; prefs.portal = portal.trim(); prefs.mac = m
-                        prefs.serial = serial.trim(); prefs.deviceId = dev1.trim(); prefs.deviceId2 = dev2.trim()
-                        onSaved()
-                    }
-                }
+            var srv = xtServer.trim(); var u = xtUser; var pw = xtPass
+            XtreamClient.parseM3u(srv)?.let { (a, b, c) -> srv = a; u = b; pw = c; xtServer = a; xtUser = b; xtPass = c }
+            when {
+                srv.isBlank() -> err = "Enter the server address."
+                u.isBlank() || pw.isBlank() -> err = "Enter the username and password."
+                else -> { prefs.xtServer = srv; prefs.xtUser = u; prefs.xtPass = pw; onSaved() }
             }
         })
     }
@@ -254,6 +199,7 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
 
 @Composable
 fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
+    val ctx = LocalContext.current
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
     val fr = remember { FocusRequester() }
@@ -262,13 +208,15 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
         error = null
         val r = withContext(Dispatchers.IO) {
             runCatching {
-                val c: IptvSource = if (prefs.mode == "xtream") XtreamClient(prefs.xtServer, prefs.xtUser, prefs.xtPass)
-                else StalkerClient(prefs.portal, prefs.mac, prefs.serial, prefs.deviceId, prefs.deviceId2)
+                val c: IptvSource = XtreamClient(prefs.xtServer, prefs.xtUser, prefs.xtPass)
                 c.connect()
                 c
             }
         }
-        r.onSuccess { Session.client = it; onDone() }
+        r.onSuccess {
+            Library.load(ctx, "${prefs.xtServer}|${prefs.xtUser}")
+            Session.client = it; onDone()
+        }
             .onFailure { error = it.message ?: "Couldn't connect." }
     }
     LaunchedEffect(error) { if (error != null) focusSoon(fr) }
@@ -333,6 +281,33 @@ fun HomeScreen(
 
 // ---------------- live TV ----------------
 
+private const val SEARCH_ID = "__search"
+private const val FAV_ID = "__fav"
+private const val LIST_ID = "__list"
+private val Gold = Color(0xFFFFC94D)
+
+@Composable
+private fun SearchField(query: String, onChange: (String) -> Unit, hint: String) {
+    OutlinedTextField(
+        value = query, onValueChange = onChange, label = { Text(hint) },
+        singleLine = true, modifier = Modifier.fillMaxWidth(),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+    )
+}
+
+@Composable
+private fun SideList(entries: List<Genre>, selected: String?, width: Int, onPick: (Genre) -> Unit) {
+    LazyColumn(Modifier.width(width.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        items(entries) { g ->
+            FocusBox(onClick = { onPick(g) }, modifier = Modifier.fillMaxWidth(), selected = g.id == selected) {
+                Text(g.title, Modifier.padding(12.dp), fontSize = 17.sp,
+                    color = if (g.id == FAV_ID || g.id == LIST_ID) Gold else Color.White,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
 @Composable
 fun LiveScreen(s: LiveState) {
     val ctx = LocalContext.current
@@ -358,32 +333,59 @@ fun LiveScreen(s: LiveState) {
         s.loading -> CenterMessage("Loading channels…", loading = true)
         err != null -> CenterMessage("Couldn't load channels", err)
         else -> {
-            val shown = remember(s.genre, s.all) {
-                if (s.genre == "*") s.all else s.all.filter { it.genreId == s.genre }
-            }
-            Row(Modifier.fillMaxSize()) {
-                LazyColumn(Modifier.width(280.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(s.genres) { g ->
-                        FocusBox(onClick = { s.genre = g.id }, modifier = Modifier.fillMaxWidth(), selected = g.id == s.genre) {
-                            Text(g.title, Modifier.padding(12.dp), fontSize = 17.sp, color = Color.White,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
+            val favs = Library.favourites
+            val shown = remember(s.genre, s.all, favs, s.query) {
+                when (s.genre) {
+                    SEARCH_ID -> {
+                        val q = s.query.trim().lowercase()
+                        if (q.isEmpty()) emptyList()
+                        else s.all.filter { it.name.lowercase().contains(q) || it.number.toString() == q }
                     }
+                    FAV_ID -> { val byId = s.all.associateBy { it.id }; favs.map { byId[it.id] ?: it } }
+                    "*" -> s.all
+                    else -> s.all.filter { it.genreId == s.genre }
                 }
+            }
+            val side = listOf(Genre(SEARCH_ID, "🔍  Search"), Genre(FAV_ID, "★  Favourites")) + s.genres
+            Row(Modifier.fillMaxSize()) {
+                SideList(side, s.genre, 280) { s.genre = it.id }
                 Spacer(Modifier.width(16.dp))
-                LazyColumn(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (shown.isEmpty()) item { Text("No channels in this group", color = TextDim, fontSize = 17.sp) }
-                    itemsIndexed(shown) { index, c ->
-                        FocusBox(onClick = {
-                            Session.channels = shown
-                            ctx.startActivity(Intent(ctx, PlayerActivity::class.java).putExtra("live_index", index))
-                        }, modifier = Modifier.fillMaxWidth()) {
-                            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(if (c.number > 0) c.number.toString() else "", Modifier.width(56.dp), color = TextDim, fontSize = 16.sp)
-                                AsyncImage(model = c.logo, contentDescription = null,
-                                    modifier = Modifier.size(width = 56.dp, height = 34.dp), contentScale = ContentScale.Fit)
-                                Spacer(Modifier.width(14.dp))
-                                Text(c.name, fontSize = 18.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    if (s.genre == SEARCH_ID) {
+                        SearchField(s.query, { s.query = it }, "Channel name or number")
+                        Spacer(Modifier.height(10.dp))
+                    }
+                    LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (shown.isEmpty()) item {
+                            Text(
+                                when (s.genre) {
+                                    SEARCH_ID -> if (s.query.isBlank()) "Type a channel name or number above." else "No channels match."
+                                    FAV_ID -> "No favourites yet. On any channel, press Right to reach the ☆, then OK."
+                                    else -> "No channels in this group"
+                                },
+                                color = TextDim, fontSize = 17.sp,
+                            )
+                        }
+                        itemsIndexed(shown) { index, c ->
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                FocusBox(onClick = {
+                                    Session.channels = shown
+                                    ctx.startActivity(Intent(ctx, PlayerActivity::class.java).putExtra("live_index", index))
+                                }, modifier = Modifier.weight(1f)) {
+                                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text(if (c.number > 0) c.number.toString() else "", Modifier.width(56.dp), color = TextDim, fontSize = 16.sp)
+                                        AsyncImage(model = c.logo, contentDescription = null,
+                                            modifier = Modifier.size(width = 56.dp, height = 34.dp), contentScale = ContentScale.Fit)
+                                        Spacer(Modifier.width(14.dp))
+                                        Text(c.name, fontSize = 18.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
+                                Spacer(Modifier.width(6.dp))
+                                val fav = favs.any { it.id == c.id }
+                                FocusBox(onClick = { Library.toggleFavourite(c) }, modifier = Modifier.size(width = 56.dp, height = 50.dp)) {
+                                    Text(if (fav) "★" else "☆", Modifier.align(Alignment.Center), fontSize = 24.sp,
+                                        color = if (fav) Gold else TextDim)
+                                }
                             }
                         }
                     }
@@ -396,11 +398,26 @@ fun LiveScreen(s: LiveState) {
 // ---------------- movies & series ----------------
 
 @Composable
+private fun PosterGrid(items: List<VodItem>, onOpen: (VodItem) -> Unit, onNearEnd: (() -> Unit)? = null) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(150.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        itemsIndexed(items) { index, item ->
+            if (onNearEnd != null && index >= items.size - 8) LaunchedEffect(index) { onNearEnd() }
+            PosterCard(item) { onOpen(item) }
+        }
+    }
+}
+
+@Composable
 fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
     val scope = rememberCoroutineScope()
 
     fun loadPage(reset: Boolean) {
         val cat = s.category ?: return
+        if (cat == SEARCH_ID || cat == LIST_ID) return
         if (!reset && (s.loading || (s.total > 0 && s.items.size >= s.total))) return
         s.job?.cancel()
         val p = if (reset) 1 else s.page + 1
@@ -435,35 +452,55 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
         }
     }
 
+    // Search as you type, after a short pause.
+    LaunchedEffect(s.query, s.category) {
+        if (s.category != SEARCH_ID) return@LaunchedEffect
+        val q = s.query.trim()
+        if (q.length < 2) { s.results = emptyList(); s.searching = false; return@LaunchedEffect }
+        delay(600)
+        s.searching = true
+        val r = withContext(Dispatchers.IO) {
+            runCatching { (Session.client ?: error("Not connected")).search(s.type, q) }
+        }
+        s.results = r.getOrDefault(emptyList()).let { list ->
+            if (s.type != "vod") list
+            else if (s.kind == "series") list.filter { it.isSeries } else list.filterNot { it.isSeries }
+        }
+        r.exceptionOrNull()?.let { s.error = it.message }
+        s.searching = false
+    }
+
     val label = s.kind
+    val side = listOf(Genre(SEARCH_ID, "🔍  Search"), Genre(LIST_ID, "★  My List")) + s.categories
     Row(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.width(260.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            items(s.categories) { g ->
-                FocusBox(onClick = { if (s.category != g.id) { s.category = g.id; loadPage(true) } },
-                    modifier = Modifier.fillMaxWidth(), selected = g.id == s.category) {
-                    Text(g.title, Modifier.padding(12.dp), fontSize = 17.sp, color = Color.White,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
+        SideList(side, s.category, 260) { g ->
+            if (s.category != g.id) { s.category = g.id; loadPage(true) }
         }
         Spacer(Modifier.width(16.dp))
         Box(Modifier.weight(1f).fillMaxHeight()) {
             val err = s.error
-            when {
-                err != null && s.items.isEmpty() -> CenterMessage("Couldn't load $label", err)
-                s.catsLoaded && s.categories.isEmpty() -> CenterMessage("No $label section on this portal",
-                    null)
-                s.items.isEmpty() && (s.loading || !s.catsLoaded) -> CenterMessage("Loading $label…", loading = true)
-                s.items.isEmpty() -> CenterMessage("Nothing in this category")
-                else -> LazyVerticalGrid(
-                    columns = GridCells.Adaptive(150.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    itemsIndexed(s.items) { index, item ->
-                        if (index >= s.items.size - 8) LaunchedEffect(index) { loadPage(false) }
-                        PosterCard(item) { onOpen(item) }
+            when (s.category) {
+                SEARCH_ID -> Column(Modifier.fillMaxSize()) {
+                    SearchField(s.query, { s.query = it }, "Search $label")
+                    Spacer(Modifier.height(12.dp))
+                    when {
+                        s.searching -> CenterMessage("Searching…", loading = true)
+                        s.query.trim().length < 2 -> CenterMessage("Type at least two letters above.")
+                        s.results.isEmpty() -> CenterMessage("Nothing found for \"${s.query.trim()}\"")
+                        else -> PosterGrid(s.results, onOpen)
                     }
+                }
+                LIST_ID -> {
+                    val saved = Library.myList.filter { it.kind == s.kind }.map { it.item }
+                    if (saved.isEmpty()) CenterMessage("Your list is empty", "Open any title and choose ＋ My List.")
+                    else PosterGrid(saved, onOpen)
+                }
+                else -> when {
+                    err != null && s.items.isEmpty() -> CenterMessage("Couldn't load $label", err)
+                    s.catsLoaded && s.categories.isEmpty() -> CenterMessage("No $label section on this server", null)
+                    s.items.isEmpty() && (s.loading || !s.catsLoaded) -> CenterMessage("Loading $label…", loading = true)
+                    s.items.isEmpty() -> CenterMessage("Nothing in this category")
+                    else -> PosterGrid(s.items, onOpen) { loadPage(false) }
                 }
             }
         }
@@ -562,9 +599,19 @@ fun DetailScreen(type: String, start: VodItem, onBack: () -> Unit) {
             }
             Spacer(Modifier.height(20.dp))
 
+            val saved = Library.inList(item.id)
+            val listButton: @Composable () -> Unit = {
+                TvButton(if (saved) "✓  In My List" else "＋  My List",
+                    onClick = { Library.toggleList(if (item.isSeries) "series" else "movies", type, item) })
+            }
             if (!item.isSeries) {
-                TvButton("▶  Play", onClick = { play(item.cmd, "", item.name, item.id) }, modifier = Modifier.focusRequester(fr))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TvButton("▶  Play", onClick = { play(item.cmd, "", item.name, item.id) }, modifier = Modifier.focusRequester(fr))
+                    listButton()
+                }
             } else {
+                listButton()
+                Spacer(Modifier.height(14.dp))
                 val ss = seasons
                 if (ss == null) {
                     Text("Loading seasons…", color = TextDim, fontSize = 17.sp)
