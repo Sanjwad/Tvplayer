@@ -87,11 +87,7 @@ fun HomeScreen(
                     .padding(horizontal = 14.dp, vertical = 24.dp)
                     .onFocusChanged { menuFocused = it.hasFocus },
             ) {
-                Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(start = 8.dp)) {
-                    Text("sanj", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Accent)
-                    Spacer(Modifier.width(4.dp))
-                    Text("tv", fontSize = 30.sp, fontWeight = FontWeight.Light, color = Color.White)
-                }
+                Logo(22.sp, Modifier.padding(start = 6.dp))
                 Spacer(Modifier.height(36.dp))
                 entries.forEach { (label, i) ->
                     FocusBox(
@@ -102,7 +98,7 @@ fun HomeScreen(
                         shape = RoundedCornerShape(8.dp),
                     ) {
                         Text(label, Modifier.padding(horizontal = 14.dp, vertical = 11.dp), fontSize = 17.sp,
-                            color = if (i == 3) GoldTint else Color.White)
+                            color = if (i == 3) LogoYellow else Color.White)
                     }
                 }
             }

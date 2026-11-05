@@ -254,7 +254,7 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
         if (!hasSaved) {
             // First run: just the login.
             Spacer(Modifier.height(40.dp))
-            Text("Sanj TV", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Accent)
+            Logo(34.sp)
             Spacer(Modifier.height(8.dp))
             Text("Enter the Xtream login from your provider", fontSize = 18.sp, color = TextDim)
             Spacer(Modifier.height(24.dp))

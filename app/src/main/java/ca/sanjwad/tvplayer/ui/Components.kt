@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,9 +34,31 @@ import androidx.compose.ui.unit.sp
 
 val Bg = Color(0xFF0E1116)
 val Panel = Color(0xFF171B22)
-val Accent = Color(0xFF4FA3FF)
+val Accent = Color(0xFFFF6B5B)
 val TextDim = Color(0xFF9AA4B2)
 val ErrorRed = Color(0xFFFF7A7A)
+
+val LogoYellow = Color(0xFFFFD166)
+private val Poppins = androidx.compose.ui.text.font.FontFamily(
+    androidx.compose.ui.text.font.Font(ca.sanjwad.tvplayer.R.font.poppins_bold, FontWeight.Bold),
+    androidx.compose.ui.text.font.Font(ca.sanjwad.tvplayer.R.font.poppins_light, FontWeight.Light),
+)
+
+/** The Sanj TV logo: the little TV mark plus "SANJ TV". */
+@Composable
+fun Logo(size: androidx.compose.ui.unit.TextUnit = 24.sp, modifier: Modifier = Modifier) {
+    androidx.compose.foundation.layout.Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.foundation.Image(
+            painter = androidx.compose.ui.res.painterResource(ca.sanjwad.tvplayer.R.drawable.ic_launcher),
+            contentDescription = null,
+            modifier = Modifier.size((size.value * 1.45f).dp),
+        )
+        Spacer(Modifier.width((size.value * 0.45f).dp))
+        Text("SANJ", fontFamily = Poppins, fontWeight = FontWeight.Bold, fontSize = size, color = Color.White, letterSpacing = 1.5.sp)
+        Spacer(Modifier.width((size.value * 0.25f).dp))
+        Text("TV", fontFamily = Poppins, fontWeight = FontWeight.Light, fontSize = size, color = LogoYellow, letterSpacing = 1.5.sp)
+    }
+}
 
 @Composable
 fun AppTheme(content: @Composable () -> Unit) {
