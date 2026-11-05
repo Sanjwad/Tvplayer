@@ -169,8 +169,8 @@ private fun PosterRow(
 
 @Composable
 private fun Hero(item: VodItem?) {
+    if (item == null) return // nothing selected yet: let the rows start at the top
     Box(Modifier.fillMaxWidth().height(220.dp)) {
-        if (item == null) return@Box
         AsyncImage(
             model = item.backdrop ?: item.poster, contentDescription = null,
             modifier = Modifier.fillMaxHeight().fillMaxWidth(0.62f).align(Alignment.TopEnd).clip(RoundedCornerShape(10.dp)),
