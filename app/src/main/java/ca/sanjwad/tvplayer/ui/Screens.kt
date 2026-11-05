@@ -484,7 +484,7 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
                     SearchField(s.query, { s.query = it }, "Search $label")
                     Spacer(Modifier.height(12.dp))
                     when {
-                        s.searching -> CenterMessage("Searching…", loading = true)
+                        s.searching -> CenterMessage("Searching…", "The first search loads the full catalogue, so it can take a moment.", loading = true)
                         s.query.trim().length < 2 -> CenterMessage("Type at least two letters above.")
                         s.results.isEmpty() -> CenterMessage("Nothing found for \"${s.query.trim()}\"")
                         else -> PosterGrid(s.results, onOpen)

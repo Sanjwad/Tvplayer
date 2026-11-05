@@ -8,6 +8,8 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
+import android.util.JsonReader
+import android.util.JsonToken
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -121,40 +123,83 @@ class XtreamClient(serverUrl: String, private val user: String, private val pass
         return (if (kind == "series") "series" else "vod") to cats
     }
 
+    private val fetchLock = Any()
+
+    /**
+     * Reads a (possibly huge) JSON array of objects without loading it all into memory,
+     * keeping only [fields] from each object.
+     */
+    private fun streamObjects(vararg params: Pair<String, String>, fields: Set<String>): List<Map<String, String>> {
+        val url = "$root/player_api.php".toHttpUrl().newBuilder().apply {
+            addQueryParameter("username", user)
+            addQueryParameter("password", pass)
+            params.forEach { (k, v) -> addQueryParameter(k, v) }
+        }.build()
+        val req = Request.Builder().url(url).header("User-Agent", Net.UA).build()
+        http.newCall(req).execute().use { r ->
+            if (!r.isSuccessful) throw IOException("The server replied with error ${r.code}.")
+            val reader = JsonReader(r.body!!.charStream())
+            val out = ArrayList<Map<String, String>>()
+            if (reader.peek() != JsonToken.BEGIN_ARRAY) return emptyList()
+            reader.beginArray()
+            while (reader.hasNext()) {
+                if (reader.peek() != JsonToken.BEGIN_OBJECT) { reader.skipValue(); continue }
+                reader.beginObject()
+                val m = HashMap<String, String>(8)
+                while (reader.hasNext()) {
+                    val name = reader.nextName()
+                    val tok = reader.peek()
+                    if (name in fields && (tok == JsonToken.STRING || tok == JsonToken.NUMBER)) m[name] = reader.nextString()
+                    else reader.skipValue()
+                }
+                reader.endObject()
+                out += m
+            }
+            reader.endArray()
+            return out
+        }
+    }
+
+    private fun Map<String, String>.s(k: String) = this[k]?.takeIf { it.isNotBlank() && it != "null" }.orEmpty()
+    private fun Map<String, String>.im(k: String) = s(k).takeIf { it.startsWith("http", true) }
+
     private fun fullList(type: String, categoryId: String): List<VodItem> {
         val key = "$type/$categoryId"
         synchronized(listCache) { listCache[key]?.let { return it } }
-        val list = if (type == "series") {
-            seriesApi(categoryId).objects().mapNotNull {
-                val id = it.str("series_id").ifEmpty { return@mapNotNull null }
-                VodItem(
-                    id = id, name = it.str("name"), description = it.str("plot"),
-                    poster = it.img("cover"), cmd = "", isSeries = true,
-                    year = it.str("year").ifEmpty { it.str("releaseDate").take(4) },
-                    rating = it.str("rating").takeIf { r -> r != "0" }.orEmpty(),
-                )
+        // One download at a time, so repeated searches or quick category changes don't pile up.
+        synchronized(fetchLock) {
+            synchronized(listCache) { listCache[key]?.let { return it } }
+            val all = categoryId == "*"
+            val cat: Array<Pair<String, String>> = if (all) emptyArray() else arrayOf("category_id" to categoryId)
+            val list = if (type == "series") {
+                val fields = if (all) setOf("series_id", "name", "cover", "year", "releaseDate", "rating")
+                else setOf("series_id", "name", "cover", "plot", "year", "releaseDate", "rating")
+                streamObjects("action" to "get_series", *cat, fields = fields).mapNotNull {
+                    val id = it.s("series_id").ifEmpty { return@mapNotNull null }
+                    VodItem(
+                        id = id, name = it.s("name"), description = it.s("plot"),
+                        poster = it.im("cover"), cmd = "", isSeries = true,
+                        year = it.s("year").ifEmpty { it.s("releaseDate").take(4) },
+                        rating = it.s("rating").takeIf { r -> r != "0" }.orEmpty(),
+                    )
+                }
+            } else {
+                val fields = setOf("stream_id", "name", "stream_icon", "container_extension", "year", "rating")
+                streamObjects("action" to "get_vod_streams", *cat, fields = fields).mapNotNull {
+                    val id = it.s("stream_id").ifEmpty { return@mapNotNull null }
+                    val ext = it.s("container_extension").ifEmpty { "mp4" }
+                    VodItem(
+                        id = id, name = it.s("name"), description = "",
+                        poster = it.im("stream_icon"), cmd = "$root/movie/$user/$pass/$id.$ext",
+                        isSeries = false, year = it.s("year"),
+                        rating = it.s("rating").takeIf { r -> r != "0" }.orEmpty(),
+                    )
+                }
             }
-        } else {
-            vodApi(categoryId).objects().mapNotNull {
-                val id = it.str("stream_id").ifEmpty { return@mapNotNull null }
-                val ext = it.str("container_extension").ifEmpty { "mp4" }
-                VodItem(
-                    id = id, name = it.str("name"), description = it.str("plot"),
-                    poster = it.img("stream_icon"), cmd = "$root/movie/$user/$pass/$id.$ext",
-                    isSeries = false, year = it.str("year"),
-                    rating = it.str("rating").takeIf { r -> r != "0" }.orEmpty(),
-                )
-            }
+            synchronized(listCache) { listCache[key] = list }
+            return list
         }
-        synchronized(listCache) { listCache[key] = list }
-        return list
     }
-
-    private fun seriesApi(cat: String) =
-        if (cat == "*") api("action" to "get_series") else api("action" to "get_series", "category_id" to cat)
-
-    private fun vodApi(cat: String) =
-        if (cat == "*") api("action" to "get_vod_streams") else api("action" to "get_vod_streams", "category_id" to cat)
 
     override fun search(type: String, query: String): List<VodItem> {
         val words = query.lowercase().split(" ").filter { it.isNotBlank() }
