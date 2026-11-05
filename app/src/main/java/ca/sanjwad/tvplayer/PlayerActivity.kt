@@ -12,6 +12,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
@@ -42,13 +43,23 @@ class PlayerActivity : ComponentActivity() {
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(30_000)
+            .setDefaultRequestProperties(Session.client?.streamHeaders() ?: emptyMap())
 
         player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(http))
             .build()
         player.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                toast("Playback problem: ${error.errorCodeName}")
+                var cause: Throwable? = error
+                var detail = error.errorCodeName
+                while (cause != null) {
+                    if (cause is HttpDataSource.InvalidResponseCodeException) {
+                        detail = "server said ${cause.responseCode} for ${cause.dataSpec.uri.host}${cause.dataSpec.uri.path}"
+                        break
+                    }
+                    cause = cause.cause
+                }
+                Toast.makeText(this@PlayerActivity, "Playback problem: $detail", Toast.LENGTH_LONG).show()
             }
         })
 

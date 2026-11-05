@@ -107,6 +107,14 @@ class StalkerClient(
         return list.distinct()
     }
 
+    /** Headers a MAG box sends when it fetches the video itself; some stream servers check them. */
+    fun streamHeaders(): Map<String, String> = buildMap {
+        put("X-User-Agent", "Model: MAG250; Link: WiFi")
+        put("Referer", portal.toString())
+        put("Cookie", "mac=${mac.replace(":", "%3A")}; stb_lang=en; timezone=America%2FToronto")
+        token?.let { put("Authorization", "Bearer $it") }
+    }
+
     // ---------- low level ----------
 
     private fun request(base: String, params: Map<String, String>): JSONObject {
