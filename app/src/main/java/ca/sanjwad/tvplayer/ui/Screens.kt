@@ -589,6 +589,29 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
         r.onSuccess { episodes = it }.onFailure { msg = it.message; episodes = emptyList() }
     }
 
+    // Fill in missing episode names, descriptions, pictures and runtimes from TMDB.
+    LaunchedEffect(seasons, seasonIdx, episodes != null) {
+        val tmdb = Session.tmdb ?: return@LaunchedEffect
+        val s = seasons?.getOrNull(seasonIdx) ?: return@LaunchedEffect
+        val eps = episodes ?: return@LaunchedEffect
+        if (eps.isEmpty() || eps.all { it.plot.isNotBlank() && it.thumb != null }) return@LaunchedEffect
+        val sn = Library.seasonNumber(s, seasonIdx)
+        val info = withContext(Dispatchers.IO) {
+            runCatching { tmdb.findTv(item.name, item.year)?.let { tmdb.season(it, sn) } }.getOrNull()
+        } ?: return@LaunchedEffect
+        if (seasons?.getOrNull(seasonIdx) !== s) return@LaunchedEffect
+        val generic = Regex("S\\d{1,2}\\s*E\\d{1,3}|^episode \\d+$", RegexOption.IGNORE_CASE)
+        episodes = eps.mapIndexed { ei, ep ->
+            val t = info[Library.episodeNumber(ep, ei)] ?: return@mapIndexed ep
+            ep.copy(
+                title = if (ep.title.isBlank() || generic.containsMatchIn(ep.title)) t.name.ifBlank { ep.title } else ep.title,
+                plot = ep.plot.ifBlank { t.overview },
+                thumb = t.still ?: ep.thumb,
+                duration = ep.duration.ifBlank { if (t.runtime > 0) "${t.runtime}m" else "" },
+            )
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
         // Backdrop behind everything, faded so text stays readable.
         AsyncImage(model = item.backdrop ?: item.poster, contentDescription = null,

@@ -57,6 +57,51 @@ class TmdbClient(private val key: String) {
         return out
     }
 
+    data class EpisodeInfo(val name: String, val overview: String, val still: String?, val runtime: Int)
+
+    private val tvIds = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val seasonInfo = java.util.concurrent.ConcurrentHashMap<String, Map<Int, EpisodeInfo>>()
+
+    /** Finds a show on TMDB from the provider's (often messy) title. */
+    fun findTv(title: String, year: String): Int? {
+        val clean = TitleMatch.queryName(title)
+        if (clean.isBlank()) return null
+        tvIds["$clean|$year"]?.let { return it }
+        val res = get("search/tv", "query" to clean).optJSONArray("results") ?: return null
+        val y = year.take(4).toIntOrNull()
+        var best: JSONObject? = null
+        for (i in 0 until res.length()) {
+            val o = res.optJSONObject(i) ?: continue
+            val oy = o.optString("first_air_date").take(4).toIntOrNull()
+            if (best == null) best = o
+            if (y != null && oy != null && abs(oy - y) <= 1) { best = o; break }
+            if (TitleMatch.norm(o.optString("name")) == TitleMatch.norm(clean)) { best = o; break }
+        }
+        val id = best?.optInt("id")?.takeIf { it > 0 } ?: return null
+        tvIds["$clean|$year"] = id
+        return id
+    }
+
+    /** Episode names, descriptions, stills and runtimes for one season, keyed by episode number. */
+    fun season(tvId: Int, seasonNumber: Int): Map<Int, EpisodeInfo> {
+        val key = "$tvId/$seasonNumber"
+        seasonInfo[key]?.let { return it }
+        val eps = get("tv/$tvId/season/$seasonNumber").optJSONArray("episodes") ?: return emptyMap()
+        val map = HashMap<Int, EpisodeInfo>()
+        for (i in 0 until eps.length()) {
+            val o = eps.optJSONObject(i) ?: continue
+            val n = o.optInt("episode_number", -1).takeIf { it > 0 } ?: continue
+            map[n] = EpisodeInfo(
+                name = o.optString("name"),
+                overview = o.optString("overview"),
+                still = o.optString("still_path").takeIf { it.isNotBlank() && it != "null" }?.let { "https://image.tmdb.org/t/p/w300$it" },
+                runtime = o.optInt("runtime", 0),
+            )
+        }
+        seasonInfo[key] = map
+        return map
+    }
+
     fun trendingMovies() = list("trending/movie/week", 3)
     fun inTheatres() = list("movie/now_playing", 3, "region" to "CA")
     fun trendingTv() = list("trending/tv/week", 3)
@@ -70,6 +115,15 @@ object TitleMatch {
     private val noise = Regex("\\b(4k|uhd|fhd|hd|sd|multi|multisub|sub|dub|eng)\\b")
     private val nonAlnum = Regex("[^a-z0-9]+")
     private val yearInName = Regex("\\((\\d{4})\\)|\\b(19|20)\\d{2}\\b$")
+
+    /** A search-friendly show name: drops "EN | ", brackets, years and "S01E02" bits. */
+    fun queryName(t: String): String = t
+        .replace(Regex("^\\s*[A-Za-z]{2,4}\\s*[|:\\-]\\s*"), "")
+        .replace(Regex("\\(.*?\\)|\\[.*?\\]"), " ")
+        .replace(Regex("\\bS\\d{1,2}\\s*E\\d{1,3}\\b", RegexOption.IGNORE_CASE), " ")
+        .replace(Regex("\\b(19|20)\\d{2}\\s*$"), " ")
+        .replace(Regex("\\s+en\\s*-\\s*all\\b.*$", RegexOption.IGNORE_CASE), " ")
+        .replace(Regex("\\s+"), " ").trim()
 
     fun norm(t: String): String = t.lowercase()
         .replace(prefix, "").replace(brackets, " ").replace(noise, " ")
