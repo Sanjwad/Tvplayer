@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The "TV" lettering of the logo: the T's bar runs into the V, with a coral antenna dot. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="92dp" android:height="62dp" android:viewportWidth="92" android:viewportHeight="62">
+    <path android:strokeColor="#FFFFD166" android:strokeWidth="14" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M8,8H44M24,8V52M44,8L61,52L78,8" />
+    <path android:fillColor="#FFFF6B5B" android:pathData="M89.5,6a5.5,5.5 0 1,1 -11,0a5.5,5.5 0 1,1 11,0z" />
+</vector>

@@ -57,8 +57,12 @@ fun Logo(size: androidx.compose.ui.unit.TextUnit = 24.sp, modifier: Modifier = M
         )
         Spacer(Modifier.width((size.value * 0.45f).dp))
         Text("SANJ", fontFamily = Poppins, fontWeight = FontWeight.Bold, fontSize = size, color = Color.White, letterSpacing = 1.5.sp)
-        Spacer(Modifier.width((size.value * 0.25f).dp))
-        Text("TV", fontFamily = Poppins, fontWeight = FontWeight.Light, fontSize = size, color = LogoYellow, letterSpacing = 1.5.sp)
+        Spacer(Modifier.width((size.value * 0.3f).dp))
+        androidx.compose.foundation.Image(
+            painter = androidx.compose.ui.res.painterResource(ca.sanjwad.tvplayer.R.drawable.wordmark_tv),
+            contentDescription = "TV",
+            modifier = Modifier.height((size.value * 0.92f).dp).width((size.value * 0.92f * 92f / 62f).dp),
+        )
     }
 }
 
