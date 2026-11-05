@@ -209,8 +209,8 @@ fun RatingPills(item: VodItem) {
 // ---------------- posters ----------------
 
 @Composable
-fun PosterTile(item: VodItem, onFocus: () -> Unit = {}, badge: String? = null, onClick: () -> Unit) {
-    FocusBox(onClick = onClick, modifier = Modifier.width(112.dp), onFocus = onFocus, shape = RoundedCornerShape(8.dp)) {
+fun PosterTile(item: VodItem, onFocus: () -> Unit = {}, badge: String? = null, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    FocusBox(onClick = onClick, modifier = modifier.width(112.dp), onFocus = onFocus, shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.padding(4.dp)) {
             Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(6.dp)).background(Bg)) {
                 Text(item.name, Modifier.align(Alignment.Center).padding(6.dp), color = TextDim, fontSize = 12.sp, maxLines = 4)
@@ -233,6 +233,7 @@ fun PosterTile(item: VodItem, onFocus: () -> Unit = {}, badge: String? = null, o
 private fun PosterRow(
     title: String, list: List<VodItem>?, onFocusItem: (VodItem) -> Unit, onOpen: (VodItem) -> Unit,
     badgeFor: (VodItem) -> String? = { null }, onSeeAll: (() -> Unit)? = null,
+    firstItem: Modifier = Modifier,
 ) {
     Column {
         Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
@@ -241,7 +242,8 @@ private fun PosterRow(
             list == null -> Text("Loading…", color = TextDim, fontSize = 14.sp, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
             list.isEmpty() -> Text("Nothing here", color = TextDim, fontSize = 14.sp, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
             else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(list) { item -> PosterTile(item, { onFocusItem(item) }, badgeFor(item)) { onOpen(item) } }
+                items(list.size) { i -> val item = list[i]
+                    PosterTile(item, { onFocusItem(item) }, badgeFor(item), if (i == 0) firstItem else Modifier) { onOpen(item) } }
                 if (onSeeAll != null) item {
                     FocusBox(onClick = onSeeAll, modifier = Modifier.width(112.dp).aspectRatio(0.6f), shape = RoundedCornerShape(8.dp)) {
                         Text("See all ›", Modifier.align(Alignment.Center), color = Accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
@@ -411,15 +413,18 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
 @Composable
 fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, item: VodItem, seasonId: String?) -> Unit) {
     val ctx = LocalContext.current
-    var query by remember { mutableStateOf(Session.lastSearch) }
+    var query by remember { mutableStateOf("") } // starts empty each time
     var channels by remember { mutableStateOf<List<ca.sanjwad.tvplayer.stalker.Channel>?>(emptyList()) }
     var movies by remember { mutableStateOf<List<VodItem>?>(emptyList()) }
     var shows by remember { mutableStateOf<List<VodItem>?>(emptyList()) }
     val fr = remember { FocusRequester() }
-    val (hero, setHero) = rememberHero()
+    val firstChannel = remember { FocusRequester() }
+    val firstMovie = remember { FocusRequester() }
+    val firstShow = remember { FocusRequester() }
+    // Set when the keyboard's search key is pressed: jump to the first result as soon as there is one.
+    var wantResults by remember { mutableStateOf(false) }
 
     LaunchedEffect(query) {
-        Session.lastSearch = query
         val q = query.trim()
         if (q.length < 2) { channels = emptyList(); movies = emptyList(); shows = emptyList(); return@LaunchedEffect }
         delay(500)
@@ -435,21 +440,33 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
             runCatching { c.search(showType, q).let { l -> if (showType == movieType) l.filter { it.isSeries } else l } }.getOrDefault(emptyList())
         }
     }
+    LaunchedEffect(wantResults, channels, movies, shows) {
+        if (!wantResults) return@LaunchedEffect
+        val target = when {
+            !channels.isNullOrEmpty() -> firstChannel
+            !movies.isNullOrEmpty() -> firstMovie
+            !shows.isNullOrEmpty() -> firstShow
+            channels != null && movies != null && shows != null -> { wantResults = false; null } // nothing found
+            else -> null // still searching; try again when results arrive
+        } ?: return@LaunchedEffect
+        delay(80)
+        if (runCatching { target.requestFocus() }.isSuccess) wantResults = false
+    }
     LaunchedEffect(Unit) { delay(200); runCatching { fr.requestFocus() } }
 
     Column(Modifier.fillMaxSize()) {
-        SearchField(query, { query = it }, "Search channels, movies and TV shows", Modifier.focusRequester(fr))
-        Spacer(Modifier.height(10.dp))
-        Hero(hero)
+        SearchField(query, { query = it; wantResults = false }, "Search channels, movies and TV shows", Modifier.focusRequester(fr),
+            onSearch = { wantResults = true })
+        Spacer(Modifier.height(14.dp))
         val q = query.trim()
         if (q.length < 2) {
             CenterMessage("Type or speak at least two letters", "Results from Live TV, Movies and TV Shows appear here.")
             return@Column
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
                 Column {
-                    Text("📺  Live TV", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
+                    Text("Live TV", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
                         modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
                     val ch = channels
                     when {
@@ -461,7 +478,7 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
                                 FocusBox(onClick = {
                                     Session.channels = ch
                                     ctx.startActivity(android.content.Intent(ctx, ca.sanjwad.tvplayer.PlayerActivity::class.java).putExtra("live_index", i))
-                                }, modifier = Modifier.width(150.dp), shape = RoundedCornerShape(8.dp)) {
+                                }, modifier = (if (i == 0) Modifier.focusRequester(firstChannel) else Modifier).width(150.dp), shape = RoundedCornerShape(8.dp)) {
                                     Column(Modifier.padding(8.dp)) {
                                         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(6.dp)).background(Bg)) {
                                             AsyncImage(model = c.logo, contentDescription = null, modifier = Modifier.fillMaxSize().padding(10.dp),
@@ -477,8 +494,8 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
                     }
                 }
             }
-            item { PosterRow("🎬  Movies", movies, setHero, { onOpen(movieType, it, null) }) }
-            item { PosterRow("🎞  TV Shows", shows, setHero, { onOpen(showType, it, null) }) }
+            item { PosterRow("Movies", movies, {}, { onOpen(movieType, it, null) }, firstItem = Modifier.focusRequester(firstMovie)) }
+            item { PosterRow("TV Shows", shows, {}, { onOpen(showType, it, null) }, firstItem = Modifier.focusRequester(firstShow)) }
         }
     }
 }

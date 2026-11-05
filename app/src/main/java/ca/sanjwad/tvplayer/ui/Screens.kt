@@ -490,7 +490,7 @@ private const val EDIT_ID = "__edit"
 private val Gold = Color(0xFFFFC94D)
 
 @Composable
-fun SearchField(query: String, onChange: (String) -> Unit, hint: String, modifier: Modifier = Modifier) {
+fun SearchField(query: String, onChange: (String) -> Unit, hint: String, modifier: Modifier = Modifier, onSearch: (() -> Unit)? = null) {
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
     OutlinedTextField(
@@ -500,7 +500,7 @@ fun SearchField(query: String, onChange: (String) -> Unit, hint: String, modifie
         // The keyboard's search key: close the keyboard and drop down into the results.
         keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = {
             keyboard?.hide()
-            focus.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)
+            if (onSearch != null) onSearch() else focus.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)
         }),
     )
 }
@@ -549,6 +549,8 @@ private fun SideList(entries: List<Genre>, selected: String?, width: Int, onPick
 @Composable
 fun LiveScreen(s: LiveState) {
     val ctx = LocalContext.current
+    // Start with an empty search box next time.
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { s.query = ""; if (s.genre == SEARCH_ID) s.genre = "*" } }
     LaunchedEffect(Unit) {
         if (!s.loaded && !s.loading) {
             s.loading = true; s.error = null
@@ -589,7 +591,7 @@ fun LiveScreen(s: LiveState) {
             val side = listOf(Genre(SEARCH_ID, "🔍  Search"), Genre(FAV_ID, "★  Favourites")) +
                 s.genres.filter { it.id == "*" || it.id !in hiddenLive }
             Row(Modifier.fillMaxSize()) {
-                SideList(side, s.genre, 280) { s.genre = it.id }
+                SideList(side, s.genre, 280) { if (it.id != SEARCH_ID) s.query = ""; s.genre = it.id }
                 Spacer(Modifier.width(16.dp))
                 if (s.genre == EDIT_ID) Column(Modifier.weight(1f).fillMaxHeight()) {
                     ManageGroups("live", s.genres) { s.genre = "*" }
@@ -677,6 +679,7 @@ private fun PosterGrid(items: List<VodItem>, onOpen: (VodItem) -> Unit, onNearEn
 @Composable
 fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
     val scope = rememberCoroutineScope()
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { s.query = ""; s.results = emptyList() } }
 
     fun loadPage(reset: Boolean) {
         val cat = s.category ?: return
@@ -742,6 +745,7 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
     val side = listOf(Genre(SEARCH_ID, "🔍  Search")) + s.categories.filter { !Library.isHidden(s.kind, it.id) }
     Row(Modifier.fillMaxSize()) {
         SideList(side, s.category, 260) { g ->
+            if (g.id != SEARCH_ID) { s.query = ""; s.results = emptyList() }
             if (s.category != g.id) { s.category = g.id; loadPage(true) }
         }
         Spacer(Modifier.width(16.dp))
