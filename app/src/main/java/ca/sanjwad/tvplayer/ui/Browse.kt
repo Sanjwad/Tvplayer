@@ -24,6 +24,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -44,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import ca.sanjwad.tvplayer.Library
 import ca.sanjwad.tvplayer.Session
 import ca.sanjwad.tvplayer.stalker.Genre
+import ca.sanjwad.tvplayer.stalker.Ratings
 import ca.sanjwad.tvplayer.stalker.Season
 import ca.sanjwad.tvplayer.stalker.VodItem
 import coil.compose.AsyncImage
@@ -123,6 +125,60 @@ fun HomeScreen(
     }
 }
 
+// ---------------- ratings ----------------
+
+private fun isRealTitle(item: VodItem) = !item.id.startsWith("m:") && !item.id.startsWith("e:")
+
+/** Small "★ 7.3" badge for a poster: the provider's score, else TMDB's. */
+@Composable
+fun RatingBadge(item: VodItem, modifier: Modifier = Modifier) {
+    if (!isRealTitle(item)) return
+    val score by produceState(Ratings.providerScore(item) ?: Ratings.peekTmdb(item), item.id) {
+        if (value == null) {
+            val t = Session.tmdb ?: return@produceState
+            value = withContext(Dispatchers.IO) { runCatching { Ratings.tmdb(item, t) }.getOrNull() }
+        }
+    }
+    val s = score
+    if (s.isNullOrBlank()) return
+    Text("★ $s", modifier.padding(5.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xCC000000))
+        .padding(horizontal = 5.dp, vertical = 1.dp), color = GoldTint, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+}
+
+@Composable
+private fun Pill(label: String, value: String, bg: Color, fg: Color) {
+    Row(Modifier.clip(RoundedCornerShape(5.dp)).background(Color(0x33FFFFFF)), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.background(bg).padding(horizontal = 6.dp, vertical = 2.dp), color = fg, fontSize = 12.sp, fontWeight = FontWeight.Black)
+        Text(value, Modifier.padding(horizontal = 7.dp, vertical = 2.dp), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+/** IMDb and TMDB ratings for the featured area and movie/show pages. */
+@Composable
+fun RatingPills(item: VodItem) {
+    val tmdb by produceState(Ratings.peekTmdb(item), item.id) {
+        if (value == null) {
+            val t = Session.tmdb ?: return@produceState
+            value = withContext(Dispatchers.IO) { runCatching { Ratings.tmdb(item, t) }.getOrNull() }
+        }
+    }
+    val imdb by produceState(Ratings.peekImdb(item), item.id) {
+        if (value == null) {
+            val o = Session.omdb ?: return@produceState
+            delay(300) // only look up titles that stay on screen
+            value = withContext(Dispatchers.IO) { runCatching { Ratings.imdb(item, o) }.getOrNull() }
+        }
+    }
+    val provider = Ratings.providerScore(item)
+    val i = imdb; val t = tmdb
+    if (i.isNullOrBlank() && t.isNullOrBlank() && provider == null) return
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+        if (!i.isNullOrBlank()) Pill("IMDb", i, Color(0xFFF5C518), Color.Black)
+        if (!t.isNullOrBlank()) Pill("TMDB", t, Color(0xFF01B4E4), Color(0xFF0D253F))
+        else if (provider != null) Pill("★", provider, GoldTint, Color.Black)
+    }
+}
+
 // ---------------- posters ----------------
 
 @Composable
@@ -133,6 +189,7 @@ fun PosterTile(item: VodItem, onFocus: () -> Unit = {}, badge: String? = null, o
                 Text(item.name, Modifier.align(Alignment.Center).padding(6.dp), color = TextDim, fontSize = 12.sp, maxLines = 4)
                 AsyncImage(model = item.poster, contentDescription = item.name,
                     modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                RatingBadge(item, Modifier.align(Alignment.BottomEnd))
                 if (badge != null) {
                     Text(badge, Modifier.align(Alignment.TopStart).padding(5.dp)
                         .clip(RoundedCornerShape(4.dp)).background(Accent).padding(horizontal = 6.dp, vertical = 2.dp),
@@ -186,12 +243,12 @@ private fun Hero(item: VodItem?) {
             .background(Brush.verticalGradient(listOf(Color.Transparent, Bg))))
         Column(Modifier.fillMaxWidth(0.55f).padding(top = 8.dp)) {
             Text(item.name, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            val meta = listOfNotNull(item.year.ifBlank { null }, item.rating.ifBlank { null }?.let { "★ $it" },
-                if (item.isSeries) "Series" else null)
+            val meta = listOfNotNull(item.year.ifBlank { null }, if (item.isSeries) "Series" else null)
             if (meta.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
                 Text(meta.joinToString("  ·  "), fontSize = 14.sp, color = TextDim)
             }
+            RatingPills(item)
             if (item.description.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
                 Text(item.description, fontSize = 14.sp, color = Color(0xFFD5DAE1), maxLines = 5, overflow = TextOverflow.Ellipsis)

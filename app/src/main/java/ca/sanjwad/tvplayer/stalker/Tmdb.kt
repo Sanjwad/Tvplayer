@@ -102,6 +102,18 @@ class TmdbClient(private val key: String) {
         return map
     }
 
+    /** TMDB's average score for the best match of a title, or null. */
+    fun score(title: String, year: String, isSeries: Boolean): Double? {
+        val q = TitleMatch.queryName(title)
+        if (q.isBlank()) return null
+        val y = year.take(4)
+        val res = if (isSeries) get("search/tv", "query" to q, *(if (y.isNotEmpty()) arrayOf("first_air_date_year" to y) else emptyArray()))
+        else get("search/movie", "query" to q, *(if (y.isNotEmpty()) arrayOf("year" to y) else emptyArray()))
+        val o = res.optJSONArray("results")?.optJSONObject(0) ?: return null
+        if (o.optInt("vote_count", 0) < 10) return null
+        return o.optDouble("vote_average", 0.0).takeIf { it > 0 }
+    }
+
     fun trendingMovies() = list("trending/movie/week", 3)
     fun inTheatres() = list("movie/now_playing", 3, "region" to "CA")
     fun trendingTv() = list("trending/tv/week", 3)

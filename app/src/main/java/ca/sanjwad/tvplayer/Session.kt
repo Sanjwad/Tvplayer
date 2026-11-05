@@ -15,6 +15,7 @@ object Session {
     var guideVersion by androidx.compose.runtime.mutableIntStateOf(0)
     /** Kept so returning to Search shows the last results. */
     var lastSearch = ""
+    @Volatile var omdb: ca.sanjwad.tvplayer.stalker.OmdbClient? = null
     @Volatile var tmdb: ca.sanjwad.tvplayer.stalker.TmdbClient? = null
     val seasonCache = java.util.concurrent.ConcurrentHashMap<String, List<ca.sanjwad.tvplayer.stalker.Season>>()
 }
@@ -33,6 +34,9 @@ class Prefs(ctx: Context) {
     var tmdbKey: String
         get() = sp.getString("tmdb_key", "").orEmpty()
         set(v) = sp.edit().putString("tmdb_key", v).apply()
+    var omdbKey: String
+        get() = sp.getString("omdb_key", "").orEmpty()
+        set(v) = sp.edit().putString("omdb_key", v).apply()
     var startOnLastChannel: Boolean
         get() = sp.getBoolean("start_last_channel", true)
         set(v) = sp.edit().putBoolean("start_last_channel", v).apply()

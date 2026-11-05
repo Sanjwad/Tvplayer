@@ -169,6 +169,7 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
     var xtUser by remember { mutableStateOf(prefs.xtUser) }
     var xtPass by remember { mutableStateOf(prefs.xtPass) }
     var tmdbKey by remember { mutableStateOf(prefs.tmdbKey) }
+    var omdbKey by remember { mutableStateOf(prefs.omdbKey) }
     var err by remember { mutableStateOf<String?>(null) }
     // With a working login, the details stay locked until "Change login details" is pressed.
     var editing by remember { mutableStateOf(!hasSaved) }
@@ -297,9 +298,22 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
                     label = { Text("TMDB key") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
                 )
+                Spacer(Modifier.height(14.dp))
+                Text("Your own OMDb key (IMDb ratings)", fontSize = 15.sp, color = Color.White)
+                Text(if (ca.sanjwad.tvplayer.BuildConfig.OMDB_KEY.isNotBlank()) "Optional. A built-in key is already used."
+                    else "Optional. Free from omdbapi.com; adds IMDb ratings to movie and show pages.", fontSize = 13.sp, color = TextDim)
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = omdbKey, onValueChange = { omdbKey = it.trim(); tmdbSaved = false },
+                    label = { Text("OMDb key") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                )
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TvButton("Save key", onClick = {
+                    TvButton("Save keys", onClick = {
+                        prefs.omdbKey = omdbKey.trim()
+                        Session.omdb = prefs.omdbKey.ifBlank { ca.sanjwad.tvplayer.BuildConfig.OMDB_KEY }
+                            .takeIf { it.isNotBlank() }?.let { ca.sanjwad.tvplayer.stalker.OmdbClient(it) }
                         prefs.tmdbKey = tmdbKey.trim()
                         Session.tmdb = prefs.tmdbKey.ifBlank { ca.sanjwad.tvplayer.BuildConfig.TMDB_KEY }
                             .takeIf { it.isNotBlank() }?.let { ca.sanjwad.tvplayer.stalker.TmdbClient(it) }
@@ -345,6 +359,9 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
             // Your own key if you entered one, otherwise the key built into the app.
             Session.tmdb = prefs.tmdbKey.ifBlank { ca.sanjwad.tvplayer.BuildConfig.TMDB_KEY }
                 .takeIf { it.isNotBlank() }?.let { ca.sanjwad.tvplayer.stalker.TmdbClient(it) }
+            Session.omdb = prefs.omdbKey.ifBlank { ca.sanjwad.tvplayer.BuildConfig.OMDB_KEY }
+                .takeIf { it.isNotBlank() }?.let { ca.sanjwad.tvplayer.stalker.OmdbClient(it) }
+            ca.sanjwad.tvplayer.stalker.Ratings.init(ctx.filesDir)
             Session.client = c
             // Reopen on the last live channel, like TiVimate.
             val lastId = Library.lastChannelId
@@ -693,6 +710,7 @@ fun PosterCard(item: VodItem, onClick: () -> Unit) {
                 Text(item.name, Modifier.align(Alignment.Center).padding(8.dp), color = TextDim, fontSize = 14.sp, maxLines = 4)
                 AsyncImage(model = item.poster, contentDescription = item.name,
                     modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                RatingBadge(item, Modifier.align(Alignment.BottomEnd))
             }
             Spacer(Modifier.height(6.dp))
             Text(item.name, fontSize = 14.sp, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -809,11 +827,11 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
             Spacer(Modifier.width(28.dp))
             Column(Modifier.weight(1f)) {
                 Text(item.name, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
-                val meta = listOfNotNull(item.year.ifBlank { null }, item.rating.ifBlank { null }?.let { "★ $it" })
-                if (meta.isNotEmpty()) {
+                if (item.year.isNotBlank()) {
                     Spacer(Modifier.height(4.dp))
-                    Text(meta.joinToString("  ·  "), fontSize = 15.sp, color = TextDim)
+                    Text(item.year, fontSize = 15.sp, color = TextDim)
                 }
+                RatingPills(item)
                 if (item.description.isNotBlank()) {
                     Spacer(Modifier.height(10.dp))
                     Text(item.description, fontSize = 15.sp, color = Color(0xFFD5DAE1), maxLines = 4, overflow = TextOverflow.Ellipsis)

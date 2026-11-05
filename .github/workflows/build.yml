@@ -27,6 +27,7 @@ jobs:
         shell: bash
         env:
           TMDB_KEY: ${{ secrets.TMDB_KEY }}
+          OMDB_KEY: ${{ secrets.OMDB_KEY }}
         run: |
           set -o pipefail
           gradle :app:assembleRelease --no-daemon 2>&1 | tee build.log
