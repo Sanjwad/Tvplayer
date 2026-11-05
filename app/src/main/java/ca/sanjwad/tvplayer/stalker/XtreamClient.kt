@@ -227,7 +227,7 @@ class XtreamClient(
 
     override fun programmes(channel: Channel, from: Long, to: Long): List<Programme> {
         val g = guide[channel.epgId.lowercase()] ?: return emptyList()
-        return g.filter { it.end > from && it.start < to }
+        return g.filter { it.end > from && it.start < to && !it.title.equals("No information available", true) }
     }
 
     override fun ensureGuide() {
