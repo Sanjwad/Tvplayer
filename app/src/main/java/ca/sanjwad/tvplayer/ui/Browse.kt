@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +49,7 @@ import ca.sanjwad.tvplayer.stalker.VodItem
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val Rail = Color(0xFF121826)
@@ -367,9 +369,23 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
     val caughtUp = withStatus.filter { it.second?.group == 2 }
     val checking = withStatus.filter { it.second == null }
 
-    if (saved.isEmpty()) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val resume = Library.progress.values.sortedByDescending { it.updated }
+    if (saved.isEmpty() && resume.isEmpty()) {
         CenterMessage("Your list is empty", "Open any movie or show and choose ＋ My List.")
         return
+    }
+
+    fun resumePlay(p: ca.sanjwad.tvplayer.Progress) {
+        scope.launch {
+            val url = withContext(Dispatchers.IO) {
+                runCatching { Session.client?.createLink("vod", p.cmd, "", null) }.getOrNull()
+            } ?: p.cmd
+            ctx.startActivity(android.content.Intent(ctx, ca.sanjwad.tvplayer.PlayerActivity::class.java)
+                .putExtra("url", url).putExtra("cmd", p.cmd).putExtra("key", p.key).putExtra("title", p.title)
+                .putExtra("subtitle", p.subtitle).putExtra("poster", p.poster).putExtra("series_id", p.seriesId))
+        }
     }
 
     @Composable
@@ -384,6 +400,16 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
     Column(Modifier.fillMaxSize()) {
         Hero(hero)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (resume.isNotEmpty()) item {
+                val byKey = resume.associateBy { it.key }
+                val tiles = resume.map { p ->
+                    VodItem(id = p.key, name = if (p.subtitle.isNotBlank() && p.seriesId != null) "${p.title} · ${p.subtitle}" else p.title,
+                        description = p.subtitle, poster = p.poster, cmd = p.cmd, isSeries = false, year = "", rating = "")
+                }
+                PosterRow("▶  Continue watching", tiles, {},
+                    onOpen = { v -> byKey[v.id]?.let { resumePlay(it) } },
+                    badgeFor = { v -> byKey[v.id]?.let { "${((it.durMs - it.posMs) / 60_000).coerceAtLeast(1)}m left" } })
+            }
             item { showRow("New episodes", newEps) }
             item { showRow("Start watching", notStarted) }
             item { showRow("Checking for new episodes…", checking) }

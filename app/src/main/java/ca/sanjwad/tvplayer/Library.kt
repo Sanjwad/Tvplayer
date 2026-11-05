@@ -12,6 +12,12 @@ import ca.sanjwad.tvplayer.stalker.VodItem
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** Where playback stopped for a movie or episode. [key] is "m:<movie id>" or "e:<episode address>". */
+data class Progress(
+    val key: String, val title: String, val subtitle: String, val poster: String?, val cmd: String,
+    val posMs: Long, val durMs: Long, val updated: Long, val seriesId: String?,
+)
+
 /** A movie or show saved to My List. [kind] is the tab ("movies"/"series"), [type] the section used for API calls. */
 data class SavedItem(val kind: String, val type: String, val item: VodItem)
 
@@ -36,6 +42,20 @@ object Library {
     var hidden by mutableStateOf<Map<String, Set<String>>>(emptyMap())
         private set
 
+    var progress by mutableStateOf<Map<String, Progress>>(emptyMap())
+        private set
+
+    fun saveProgress(p: Progress) {
+        val done = p.durMs > 0 && p.posMs > p.durMs * 0.95
+        progress = if (done || p.posMs < 30_000) progress - p.key else progress + (p.key to p)
+        val o = JSONObject()
+        progress.values.sortedByDescending { it.updated }.take(60).forEach {
+            o.put(it.key, JSONObject().put("t", it.title).put("s", it.subtitle).put("p", it.poster ?: "").put("c", it.cmd)
+                .put("pos", it.posMs).put("dur", it.durMs).put("u", it.updated).put("sid", it.seriesId ?: ""))
+        }
+        sp?.edit()?.putString("progress_$key", o.toString())?.apply()
+    }
+
     fun isHidden(section: String, id: String) = hidden[section]?.contains(id) == true
 
     fun setHidden(section: String, ids: Collection<String>, hide: Boolean) {
@@ -59,6 +79,14 @@ object Library {
                 val a = parts.getOrNull(0)?.toIntOrNull(); val b = parts.getOrNull(1)?.toIntOrNull()
                 if (a != null && b != null) k to (a to b) else null
             }.toMap()
+        }.getOrDefault(emptyMap())
+        progress = runCatching {
+            val o = JSONObject(prefs.getString("progress_$key", "{}")!!)
+            o.keys().asSequence().associateWith { k ->
+                val v = o.getJSONObject(k)
+                Progress(k, v.optString("t"), v.optString("s"), v.optString("p").ifBlank { null }, v.optString("c"),
+                    v.optLong("pos"), v.optLong("dur"), v.optLong("u"), v.optString("sid").ifBlank { null })
+            }
         }.getOrDefault(emptyMap())
         hidden = runCatching {
             val o = JSONObject(prefs.getString("hidden_$key", "{}")!!)

@@ -56,6 +56,29 @@ class PlayerActivity : ComponentActivity() {
     /** Set when the address says .mp4/.mkv/.ts but the server actually sends an HLS playlist. */
     private var asHls = false
     private val prefs by lazy { getSharedPreferences("player", MODE_PRIVATE) }
+
+    // Resume support for movies and episodes.
+    private var resumeKey: String? = null
+    private var resumed = false
+    private val saver = android.os.Handler(android.os.Looper.getMainLooper())
+    private val saveTick = object : Runnable {
+        override fun run() { saveProgress(); saver.postDelayed(this, 15_000) }
+    }
+
+    private fun saveProgress() {
+        val key = resumeKey ?: return
+        val pos = player.currentPosition
+        val dur = player.duration.takeIf { it > 0 } ?: return
+        Library.saveProgress(Progress(
+            key = key,
+            title = intent.getStringExtra("title").orEmpty(),
+            subtitle = intent.getStringExtra("subtitle").orEmpty(),
+            poster = intent.getStringExtra("poster"),
+            cmd = intent.getStringExtra("cmd") ?: currentUrl.orEmpty(),
+            posMs = pos, durMs = dur, updated = System.currentTimeMillis(),
+            seriesId = intent.getStringExtra("series_id"),
+        ))
+    }
     /** Recent request outcomes, shown when playback fails so the cause is visible. */
     private val trail = java.util.Collections.synchronizedList(mutableListOf<String>())
 
@@ -100,6 +123,17 @@ class PlayerActivity : ComponentActivity() {
             .build()
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY && !resumed) {
+                    resumed = true
+                    val saved = resumeKey?.let { Library.progress[it] }
+                    val dur = player.duration
+                    if (saved != null && saved.posMs > 30_000 && (dur <= 0 || saved.posMs < dur - 60_000)) {
+                        player.seekTo(saved.posMs)
+                        val m = saved.posMs / 60_000; val sec = (saved.posMs / 1000) % 60
+                        toast("Resuming at $m:${"%02d".format(sec)}  ·  press ◀◀ to go back to the start")
+                    }
+                    if (resumeKey != null) { saver.removeCallbacks(saveTick); saver.postDelayed(saveTick, 15_000) }
+                }
                 if (state == Player.STATE_READY && liveIndex < 0 && asHls != prefs.getBoolean("vod_hls", false)) {
                     prefs.edit().putBoolean("vod_hls", asHls).apply()
                 }
@@ -160,6 +194,7 @@ class PlayerActivity : ComponentActivity() {
         val url = intent.getStringExtra("url")
         when {
             url != null -> {
+                resumeKey = intent.getStringExtra("key")
                 view.controllerAutoShow = true
                 firstAgent = prefs.getInt("vod_agent", 0).coerceIn(0, agents.size - 1)
                 agentIndex = firstAgent
@@ -231,11 +266,14 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        saveProgress()
+        saver.removeCallbacks(saveTick)
         player.pause()
     }
 
     override fun onStart() {
         super.onStart()
+        if (resumeKey != null && resumed) { saver.removeCallbacks(saveTick); saver.postDelayed(saveTick, 15_000) }
         if (player.playbackState != Player.STATE_IDLE) player.play()
     }
 

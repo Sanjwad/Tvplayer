@@ -575,7 +575,7 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
     val fr = remember { FocusRequester() }
     val last = Library.watched[item.id]
 
-    fun play(cmd: String, series: String, title: String, movieId: String? = null) {
+    fun play(cmd: String, series: String, title: String, movieId: String? = null, extras: Map<String, String?> = emptyMap()) {
         msg = "Starting…"
         scope.launch {
             val r = withContext(Dispatchers.IO) {
@@ -583,14 +583,22 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
             }
             r.onSuccess {
                 msg = null
-                ctx.startActivity(Intent(ctx, PlayerActivity::class.java).putExtra("url", it).putExtra("title", title))
+                val i = Intent(ctx, PlayerActivity::class.java).putExtra("url", it).putExtra("title", title).putExtra("cmd", cmd)
+                extras.forEach { (k, v) -> if (v != null) i.putExtra(k, v) }
+                ctx.startActivity(i)
             }.onFailure { msg = it.message ?: "Couldn't start playback." }
         }
     }
 
+    fun playMovie() = play(item.cmd, "", item.name, item.id, mapOf(
+        "key" to "m:${item.id}", "subtitle" to item.year, "poster" to (item.poster ?: item.backdrop)))
+
     fun playEpisode(s: Season, si: Int, ep: Episode, ei: Int) {
-        Library.markWatched(item.id, Library.seasonNumber(s, si), Library.episodeNumber(ep, ei))
-        play(ep.cmd, ep.seriesParam, "${item.name} ${ep.title}")
+        val sn = Library.seasonNumber(s, si); val en = Library.episodeNumber(ep, ei)
+        Library.markWatched(item.id, sn, en)
+        play(ep.cmd, ep.seriesParam, item.name, null, mapOf(
+            "key" to "e:${ep.cmd}", "subtitle" to "S$sn E$en  ·  ${ep.title}",
+            "poster" to (item.poster ?: ep.thumb), "series_id" to item.id))
     }
 
     LaunchedEffect(item.id) {
@@ -683,7 +691,9 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
                 }
                 if (!item.isSeries) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        TvButton("▶  Play", onClick = { play(item.cmd, "", item.name, item.id) }, modifier = Modifier.focusRequester(fr))
+                        val prog = Library.progress["m:${item.id}"]
+                        TvButton(if (prog != null) "▶  Resume  ·  ${((prog.durMs - prog.posMs) / 60_000).coerceAtLeast(1)}m left" else "▶  Play",
+                            onClick = { playMovie() }, modifier = Modifier.focusRequester(fr))
                         listButton()
                     }
                 } else {
@@ -734,6 +744,11 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
                                                     modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
                                                     alpha = if (seen) 0.55f else 1f)
                                                 Text("▶", Modifier.align(Alignment.Center), color = Color.White.copy(alpha = 0.85f), fontSize = 22.sp)
+                                                Library.progress["e:${ep.cmd}"]?.let { pg ->
+                                                    if (pg.durMs > 0) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(Color(0x55000000))) {
+                                                        Box(Modifier.fillMaxHeight().fillMaxWidth((pg.posMs.toFloat() / pg.durMs).coerceIn(0f, 1f)).background(Accent))
+                                                    }
+                                                }
                                                 if (seen) Text("✓ Watched", Modifier.align(Alignment.BottomStart).padding(5.dp)
                                                     .clip(RoundedCornerShape(4.dp)).background(Color.Black.copy(alpha = 0.6f))
                                                     .padding(horizontal = 5.dp, vertical = 1.dp), color = Accent, fontSize = 11.sp)
