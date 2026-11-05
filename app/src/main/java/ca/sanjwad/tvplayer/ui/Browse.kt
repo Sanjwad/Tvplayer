@@ -151,6 +151,7 @@ private fun isRealTitle(item: VodItem) = !item.id.startsWith("m:") && !item.id.s
 fun RatingBadge(item: VodItem, modifier: Modifier = Modifier) {
     if (!isRealTitle(item)) return
     val score by produceState(Ratings.providerScore(item) ?: Ratings.peekTmdb(item), item.id) {
+        value = Ratings.providerScore(item) ?: Ratings.peekTmdb(item) // reset for this title
         if (value == null) {
             val t = Session.tmdb ?: return@produceState
             value = withContext(Dispatchers.IO) { runCatching { Ratings.tmdb(item, t) }.getOrNull() }
@@ -174,12 +175,14 @@ private fun Pill(label: String, value: String, bg: Color, fg: Color) {
 @Composable
 fun RatingPills(item: VodItem) {
     val tmdb by produceState(Ratings.peekTmdb(item), item.id) {
+        value = Ratings.peekTmdb(item) // reset for this title, don't keep the previous one's
         if (value == null) {
             val t = Session.tmdb ?: return@produceState
             value = withContext(Dispatchers.IO) { runCatching { Ratings.tmdb(item, t) }.getOrNull() }
         }
     }
     val imdb by produceState(Ratings.peekImdb(item), item.id) {
+        value = Ratings.peekImdb(item)
         if (value == null) {
             val o = Session.omdb ?: return@produceState
             delay(300) // only look up titles that stay on screen
