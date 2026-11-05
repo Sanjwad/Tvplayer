@@ -19,6 +19,7 @@ import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import androidx.media3.datasource.HttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
@@ -93,6 +94,8 @@ class PlayerActivity : ComponentActivity() {
         val http = OkHttpDataSource.Factory(okhttp)
 
         player = ExoPlayer.Builder(this)
+            // Start playing after ~1s of video instead of the default 2.5s, like TiVimate's quick channel changes.
+            .setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(15_000, 50_000, 1_000, 2_000).build())
             .setMediaSourceFactory(DefaultMediaSourceFactory(http))
             .build()
         player.addListener(object : Player.Listener {
@@ -198,6 +201,11 @@ class PlayerActivity : ComponentActivity() {
             val link = withContext(Dispatchers.IO) { runCatching { client.createLink("itv", ch.cmd, "", null) } }
             link.onSuccess { play(it) }
                 .onFailure { toast(it.message ?: "Couldn't start this channel") }
+            // Show what's on now, once the guide answers.
+            val now = withContext(Dispatchers.IO) { runCatching { client.nowNext(ch) }.getOrNull()?.firstOrNull() }
+            if (now != null && liveIndex >= 0 && Session.channels.getOrNull(liveIndex)?.id == ch.id) {
+                toast("${if (ch.number > 0) "${ch.number}  " else ""}${ch.name}\nNow: ${now.title}")
+            }
         }
     }
 

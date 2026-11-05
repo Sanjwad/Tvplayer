@@ -293,6 +293,34 @@ private fun SearchField(query: String, onChange: (String) -> Unit, hint: String)
     )
 }
 
+private val clock = java.text.SimpleDateFormat("h:mm", java.util.Locale.getDefault())
+fun clockTime(ms: Long): String = clock.format(java.util.Date(ms))
+
+/** "Now" and "Next" lines under a channel, with a thin progress bar for the current show. */
+@Composable
+fun ChannelGuide(c: ca.sanjwad.tvplayer.stalker.Channel) {
+    var guide by remember(c.id) { mutableStateOf<List<ca.sanjwad.tvplayer.stalker.Programme>?>(null) }
+    LaunchedEffect(c.id) {
+        guide = withContext(Dispatchers.IO) { runCatching { Session.client?.nowNext(c) }.getOrNull().orEmpty() }
+    }
+    val g = guide ?: return
+    val now = g.firstOrNull() ?: return
+    val next = g.getOrNull(1)
+    val t = System.currentTimeMillis()
+    val frac = if (now.end > now.start) ((t - now.start).toFloat() / (now.end - now.start)).coerceIn(0f, 1f) else 0f
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(now.title, fontSize = 13.sp, color = Color(0xFFD5DAE1), maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false))
+        if (next != null) {
+            Text("   ›  ${clockTime(next.start)}  ${next.title}", fontSize = 12.sp, color = TextDim,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        }
+    }
+    Box(Modifier.padding(top = 3.dp).width(160.dp).height(3.dp).clip(RoundedCornerShape(2.dp)).background(Color(0x33FFFFFF))) {
+        Box(Modifier.fillMaxHeight().fillMaxWidth(frac).background(Accent))
+    }
+}
+
 @Composable
 private fun SideList(entries: List<Genre>, selected: String?, width: Int, onPick: (Genre) -> Unit) {
     LazyColumn(Modifier.width(width.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -379,7 +407,10 @@ fun LiveScreen(s: LiveState) {
                                         AsyncImage(model = c.logo, contentDescription = null,
                                             modifier = Modifier.size(width = 56.dp, height = 34.dp), contentScale = ContentScale.Fit)
                                         Spacer(Modifier.width(14.dp))
-                                        Text(c.name, fontSize = 18.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Column(Modifier.weight(1f)) {
+                                            Text(c.name, fontSize = 17.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            ChannelGuide(c)
+                                        }
                                     }
                                 }
                                 Spacer(Modifier.width(6.dp))

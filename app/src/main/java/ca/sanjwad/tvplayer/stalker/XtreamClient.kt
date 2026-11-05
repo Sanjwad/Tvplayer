@@ -113,21 +113,94 @@ class XtreamClient(
 
     // ---------- live ----------
 
-    override fun liveGenres(): List<Genre> =
-        api("action" to "get_live_categories").objects().map { Genre(it.str("category_id"), it.str("category_name")) }
+    override fun liveGenres(): List<Genre> {
+        val file = cacheFile("live_cats")
+        readCats(file, maxAgeMs = 6 * HOUR)?.let { return it }
+        return try {
+            api("action" to "get_live_categories").objects().map { Genre(it.str("category_id"), it.str("category_name")) }
+                .also { writeCats(file, it) }
+        } catch (e: Exception) {
+            readCats(file, Long.MAX_VALUE) ?: throw e
+        }
+    }
 
-    override fun liveChannels(): List<Channel> =
-        api("action" to "get_live_streams").objects().mapNotNull {
-            val id = it.str("stream_id").ifEmpty { return@mapNotNull null }
-            Channel(
-                id = id,
-                name = it.str("name"),
-                number = it.str("num").toIntOrNull() ?: 0,
-                cmd = "$root/live/$user/$pass/$id.m3u8",
-                logo = it.img("stream_icon"),
-                genreId = it.str("category_id"),
-            )
-        }.sortedBy { if (it.number > 0) it.number else Int.MAX_VALUE }
+    override fun liveChannels(): List<Channel> {
+        val file = cacheFile("live_channels")
+        readChannels(file, maxAgeMs = 6 * HOUR)?.let { return it }
+        return try {
+            streamObjects("action" to "get_live_streams", fields = setOf("stream_id", "name", "num", "stream_icon", "category_id"))
+                .mapNotNull {
+                    val id = it.s("stream_id").ifEmpty { return@mapNotNull null }
+                    Channel(
+                        id = id,
+                        name = it.s("name"),
+                        number = it.s("num").toIntOrNull() ?: 0,
+                        cmd = "$root/live/$user/$pass/$id.m3u8",
+                        logo = it.im("stream_icon"),
+                        genreId = it.s("category_id"),
+                    )
+                }.sortedBy { if (it.number > 0) it.number else Int.MAX_VALUE }
+                .also { writeChannels(file, it) }
+        } catch (e: Exception) {
+            readChannels(file, Long.MAX_VALUE) ?: throw e
+        }
+    }
+
+    private fun writeChannels(f: java.io.File?, list: List<Channel>) {
+        f ?: return
+        runCatching {
+            val a = JSONArray()
+            list.forEach { a.put(JSONArray().put(it.id).put(it.name).put(it.number).put(it.logo ?: "").put(it.genreId)) }
+            f.writeText(a.toString())
+        }
+    }
+
+    private fun readChannels(f: java.io.File?, maxAgeMs: Long): List<Channel>? {
+        if (!fresh(f, maxAgeMs)) return null
+        return runCatching {
+            val a = JSONArray(f!!.readText())
+            (0 until a.length()).map { i ->
+                val r = a.getJSONArray(i)
+                val id = r.getString(0)
+                Channel(id, r.getString(1), r.optInt(2), "$root/live/$user/$pass/$id.m3u8", r.optString(3).ifBlank { null }, r.optString(4))
+            }
+        }.getOrNull()
+    }
+
+    // ---------- TV guide ----------
+
+    private val epgCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<Programme>>>()
+    /** Only a few guide lookups at once, so fast scrolling doesn't flood the provider. */
+    private val epgGate = java.util.concurrent.Semaphore(4)
+
+    private fun b64(s: String): String = runCatching {
+        String(android.util.Base64.decode(s, android.util.Base64.DEFAULT), Charsets.UTF_8)
+    }.getOrDefault(s).trim()
+
+    override fun nowNext(channel: Channel): List<Programme> {
+        val now = System.currentTimeMillis()
+        epgCache[channel.id]?.let { (at, list) ->
+            val firstEnd = list.firstOrNull()?.end ?: 0
+            if (now - at < 15 * 60_000 && (list.isEmpty() || firstEnd > now)) return list.filter { it.end > now }
+        }
+        epgGate.acquire()
+        try {
+            val js = api("action" to "get_short_epg", "stream_id" to channel.id, "limit" to "3") as? JSONObject
+            val rows = js?.optJSONArray("epg_listings").objects()
+            val list = rows.mapNotNull {
+                val start = (it.str("start_timestamp").toLongOrNull() ?: return@mapNotNull null) * 1000
+                val end = (it.str("stop_timestamp").toLongOrNull() ?: return@mapNotNull null) * 1000
+                Programme(b64(it.str("title")), b64(it.str("description")), start, end)
+            }.filter { it.end > now }.sortedBy { it.start }
+            epgCache[channel.id] = now to list
+            return list
+        } catch (e: Exception) {
+            epgCache[channel.id] = now to emptyList()
+            return emptyList()
+        } finally {
+            epgGate.release()
+        }
+    }
 
     // ---------- movies & series ----------
 

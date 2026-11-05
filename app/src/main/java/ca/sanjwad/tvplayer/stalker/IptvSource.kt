@@ -11,6 +11,9 @@ interface IptvSource {
     fun liveGenres(): List<Genre>
     fun liveChannels(): List<Channel>
 
+    /** What's on now and next for a channel (may be empty if the provider has no guide). */
+    fun nowNext(channel: Channel): List<Programme> = emptyList()
+
     /**
      * Categories for a tab ("movies" or "series"). Returns the section type to use for later
      * calls (e.g. "vod" or "series") along with the categories.

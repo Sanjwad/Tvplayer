@@ -30,6 +30,9 @@ data class Episode(
     val plot: String = "", val thumb: String? = null, val duration: String = "",
 )
 
+/** One TV-guide entry; times are epoch milliseconds. */
+data class Programme(val title: String, val description: String, val start: Long, val end: Long)
+
 data class Page(val items: List<VodItem>, val totalItems: Int)
 
 object Net {
