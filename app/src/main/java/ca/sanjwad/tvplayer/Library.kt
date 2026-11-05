@@ -45,9 +45,18 @@ object Library {
     var progress by mutableStateOf<Map<String, Progress>>(emptyMap())
         private set
 
+    fun removeProgress(key: String) {
+        progress = progress - key
+        writeProgress()
+    }
+
     fun saveProgress(p: Progress) {
         val done = p.durMs > 0 && p.posMs > p.durMs * 0.95
         progress = if (done || p.posMs < 30_000) progress - p.key else progress + (p.key to p)
+        writeProgress()
+    }
+
+    private fun writeProgress() {
         val o = JSONObject()
         progress.values.sortedByDescending { it.updated }.take(60).forEach {
             o.put(it.key, JSONObject().put("t", it.title).put("s", it.subtitle).put("p", it.poster ?: "").put("c", it.cmd)

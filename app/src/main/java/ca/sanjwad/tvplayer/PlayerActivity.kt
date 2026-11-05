@@ -125,7 +125,7 @@ class PlayerActivity : ComponentActivity() {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY && !resumed) {
                     resumed = true
-                    val saved = resumeKey?.let { Library.progress[it] }
+                    val saved = resumeKey?.takeUnless { intent.getBooleanExtra("from_start", false) }?.let { Library.progress[it] }
                     val dur = player.duration
                     if (saved != null && saved.posMs > 30_000 && (dur <= 0 || saved.posMs < dur - 60_000)) {
                         player.seekTo(saved.posMs)

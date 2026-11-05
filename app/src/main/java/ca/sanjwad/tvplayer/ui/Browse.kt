@@ -485,6 +485,36 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
 
 // ---------------- smart My List ----------------
 
+@Composable
+private fun ResumeMenu(
+    p: ca.sanjwad.tvplayer.Progress,
+    onResume: () -> Unit, onStart: () -> Unit, onPage: () -> Unit, onRemove: () -> Unit, onDismiss: () -> Unit,
+) {
+    val first = remember { FocusRequester() }
+    BackHandler(onBack = onDismiss)
+    LaunchedEffect(Unit) { delay(100); runCatching { first.requestFocus() } }
+    val left = ((p.durMs - p.posMs) / 60_000).coerceAtLeast(1)
+    Box(Modifier.fillMaxSize().background(Color(0xCC000000)), contentAlignment = Alignment.Center) {
+        Column(Modifier.width(440.dp).clip(RoundedCornerShape(14.dp)).background(Panel).padding(24.dp)) {
+            Text(p.title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (p.subtitle.isNotBlank() && p.seriesId != null) Text(p.subtitle, fontSize = 14.sp, color = TextDim, maxLines = 1)
+            Spacer(Modifier.height(16.dp))
+            listOf(
+                "▶   Resume  ·  ${left}m left" to onResume,
+                "⟲   Play from the start" to onStart,
+                (if (p.seriesId != null) "☰   Go to the show page" else "☰   Go to the movie page") to onPage,
+                "✕   Remove from Continue watching" to onRemove,
+            ).forEachIndexed { i, (label, action) ->
+                FocusBox(onClick = action, modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
+                    .then(if (i == 0) Modifier.focusRequester(first) else Modifier), shape = RoundedCornerShape(8.dp)) {
+                    Text(label, Modifier.padding(horizontal = 14.dp, vertical = 11.dp), fontSize = 16.sp,
+                        color = if (i == 3) ErrorRed else Color.White)
+                }
+            }
+        }
+    }
+}
+
 private data class ShowStatus(val badge: String, val seasonId: String?, val group: Int)
 
 @Composable
@@ -536,14 +566,29 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
         return
     }
 
-    fun resumePlay(p: ca.sanjwad.tvplayer.Progress) {
+    var menuFor by remember { mutableStateOf<ca.sanjwad.tvplayer.Progress?>(null) }
+
+    fun resumePlay(p: ca.sanjwad.tvplayer.Progress, fromStart: Boolean = false) {
         scope.launch {
             val url = withContext(Dispatchers.IO) {
                 runCatching { Session.client?.createLink("vod", p.cmd, "", null) }.getOrNull()
             } ?: p.cmd
             ctx.startActivity(android.content.Intent(ctx, ca.sanjwad.tvplayer.PlayerActivity::class.java)
                 .putExtra("url", url).putExtra("cmd", p.cmd).putExtra("key", p.key).putExtra("title", p.title)
-                .putExtra("subtitle", p.subtitle).putExtra("poster", p.poster).putExtra("series_id", p.seriesId))
+                .putExtra("subtitle", p.subtitle).putExtra("poster", p.poster).putExtra("series_id", p.seriesId)
+                .putExtra("from_start", fromStart))
+        }
+    }
+
+    fun openTitlePage(p: ca.sanjwad.tvplayer.Progress) {
+        val sid = p.seriesId
+        if (sid != null) {
+            val show = Library.myList.firstOrNull { it.item.id == sid }
+            if (show != null) onOpen(show.type, show.item, null)
+            else onOpen("series", VodItem(sid, p.title, "", p.poster, "", true, "", ""), null)
+        } else {
+            val id = p.key.removePrefix("m:")
+            onOpen("vod", VodItem(id, p.title, "", p.poster, p.cmd, false, p.subtitle, ""), null)
         }
     }
 
@@ -568,7 +613,7 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
                         description = p.subtitle, poster = p.poster, cmd = p.cmd, isSeries = false, year = "", rating = "")
                 }
                 PosterRow("▶  Continue watching", tiles, {},
-                    onOpen = { v -> byKey[v.id]?.let { resumePlay(it) } },
+                    onOpen = { v -> byKey[v.id]?.let { menuFor = it } },
                     badgeFor = { v -> byKey[v.id]?.let { "${((it.durMs - it.posMs) / 60_000).coerceAtLeast(1)}m left" } })
             }
             item { showRow("New episodes", newEps) }
@@ -581,5 +626,13 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
             }
             item { showRow("Caught up — waiting for new seasons", caughtUp) }
         }
+    }
+    menuFor?.let { p ->
+        ResumeMenu(p,
+            onResume = { menuFor = null; resumePlay(p) },
+            onStart = { menuFor = null; resumePlay(p, fromStart = true) },
+            onPage = { menuFor = null; openTitlePage(p) },
+            onRemove = { menuFor = null; Library.removeProgress(p.key) },
+            onDismiss = { menuFor = null })
     }
 }
