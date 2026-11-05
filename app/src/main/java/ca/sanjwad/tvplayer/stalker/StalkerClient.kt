@@ -35,7 +35,7 @@ data class VodItem(
 data class Season(val id: String, val name: String, val episodes: List<Episode>?)
 
 /** [seriesParam] is the episode number some portals expect alongside the season's cmd. */
-data class Episode(val title: String, val number: String, val cmd: String, val seriesParam: String)
+data class Episode(val title: String, val number: String, val cmd: String, val seriesParam: String, val plot: String = "")
 
 data class Page(val items: List<VodItem>, val totalItems: Int)
 
@@ -51,11 +51,11 @@ class StalkerClient(
     private val serial: String = "",
     private val deviceId: String = "",
     private val deviceId2: String = "",
-) {
+) : IptvSource {
 
     private val mac = macAddress.trim().uppercase()
     private val portal: HttpUrl = normalise(portalUrl)
-    val portalHost: String get() = portal.host
+    override val portalHost: String get() = portal.host
     private val root = "${portal.scheme}://${portal.host}:${portal.port}"
     private val candidates = buildCandidates()
 
@@ -109,7 +109,7 @@ class StalkerClient(
     }
 
     /** Headers a MAG box sends when it fetches the video itself; some stream servers check them. */
-    fun streamHeaders(): Map<String, String> = buildMap {
+    override fun streamHeaders(): Map<String, String> = buildMap {
         put("X-User-Agent", "Model: MAG250; Link: WiFi")
         put("Referer", portal.toString())
         put("Cookie", "mac=${mac.replace(":", "%3A")}; stb_lang=en; timezone=America%2FToronto")
@@ -163,7 +163,7 @@ class StalkerClient(
 
     /** Logs in. Tries the usual API paths until one gives a token. */
     @Synchronized
-    fun connect() {
+    override fun connect() {
         val report = mutableListOf<String>()
         var refused = false
         for (base in candidates) {
@@ -230,11 +230,11 @@ class StalkerClient(
 
     // ---------- live TV ----------
 
-    fun liveGenres(): List<Genre> =
+    override fun liveGenres(): List<Genre> =
         call(mapOf("type" to "itv", "action" to "get_genres")).optJSONArray("js")
             .mapObjects { Genre(it.optString("id"), it.optString("title")) }
 
-    fun liveChannels(): List<Channel> {
+    override fun liveChannels(): List<Channel> {
         val js = call(mapOf("type" to "itv", "action" to "get_all_channels")).optJSONObject("js")
         return js?.optJSONArray("data").mapObjects {
             Channel(
@@ -268,7 +268,7 @@ class StalkerClient(
         rating = o.optString("rating_imdb").takeIf { it != "null" && it != "0" && it != "N/A" }.orEmpty(),
     )
 
-    fun vodPage(type: String, categoryId: String, page: Int): Page {
+    override fun vodPage(type: String, categoryId: String, page: Int): Page {
         val js = call(
             mapOf(
                 "type" to type, "action" to "get_ordered_list", "category" to categoryId,
@@ -279,7 +279,7 @@ class StalkerClient(
         return Page(items, js?.optInt("total_items", items.size) ?: items.size)
     }
 
-    fun seasons(type: String, item: VodItem): List<Season> {
+    override fun seasons(type: String, item: VodItem): List<Season> {
         val rows = allPages(
             mapOf("type" to type, "action" to "get_ordered_list", "movie_id" to item.id,
                 "season_id" to "0", "episode_id" to "0")
@@ -296,7 +296,7 @@ class StalkerClient(
         }
     }
 
-    fun episodes(type: String, item: VodItem, season: Season): List<Episode> =
+    override fun episodes(type: String, item: VodItem, season: Season): List<Episode> =
         allPages(
             mapOf("type" to type, "action" to "get_ordered_list", "movie_id" to item.id,
                 "season_id" to season.id, "episode_id" to "0")
@@ -308,6 +308,25 @@ class StalkerClient(
                 seriesParam = "",
             )
         }
+
+    private fun isSeriesLike(title: String): Boolean =
+        Regex("SERIES|SHOWS|TV SHOW|SEASON|SÉRIE|SERIE", RegexOption.IGNORE_CASE).containsMatchIn(title)
+
+    /**
+     * Many providers put TV series inside the movie (vod) section. Split it by category name;
+     * fall back to the portal's own series section when the vod section has no series categories.
+     */
+    override fun browseCategories(kind: String): Pair<String, List<Genre>> {
+        val vod = runCatching { vodCategories("vod") }
+        if (kind == "movies") {
+            val all = vod.getOrThrow()
+            val (ser, mov) = all.partition { isSeriesLike(it.title) }
+            return "vod" to if (ser.isEmpty()) all else mov.filter { it.id != "*" }
+        }
+        val vodSeries = vod.getOrDefault(emptyList()).filter { isSeriesLike(it.title) }
+        if (vodSeries.isNotEmpty()) return "vod" to vodSeries
+        return "series" to vodCategories("series")
+    }
 
     // ---------- playback ----------
 
@@ -358,7 +377,7 @@ class StalkerClient(
         return out.distinct()
     }
 
-    fun createLink(type: String, cmd: String, series: String = "", movieId: String? = null): String {
+    override fun createLink(type: String, cmd: String, series: String, movieId: String?): String {
         val log = mutableListOf<String>()
         // Movies/episodes whose cmd is already a real address need no create_link round trip.
         if (type == "vod") directUrl(cmd)?.let { return it }

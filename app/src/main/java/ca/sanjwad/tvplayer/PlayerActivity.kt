@@ -176,7 +176,7 @@ class PlayerActivity : ComponentActivity() {
         toast(if (ch.number > 0) "${ch.number}  ${ch.name}" else ch.name)
         switchJob?.cancel()
         switchJob = lifecycleScope.launch {
-            val link = withContext(Dispatchers.IO) { runCatching { client.createLink("itv", ch.cmd) } }
+            val link = withContext(Dispatchers.IO) { runCatching { client.createLink("itv", ch.cmd, "", null) } }
             link.onSuccess { play(it) }
                 .onFailure { toast(it.message ?: "Couldn't start this channel") }
         }

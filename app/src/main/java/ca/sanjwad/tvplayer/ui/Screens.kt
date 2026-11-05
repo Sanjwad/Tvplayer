@@ -57,7 +57,9 @@ import ca.sanjwad.tvplayer.stalker.Channel
 import ca.sanjwad.tvplayer.stalker.Episode
 import ca.sanjwad.tvplayer.stalker.Genre
 import ca.sanjwad.tvplayer.stalker.Season
+import ca.sanjwad.tvplayer.stalker.IptvSource
 import ca.sanjwad.tvplayer.stalker.StalkerClient
+import ca.sanjwad.tvplayer.stalker.XtreamClient
 import ca.sanjwad.tvplayer.stalker.VodItem
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
@@ -108,7 +110,7 @@ private suspend fun focusSoon(fr: FocusRequester) {
 fun App() {
     val ctx = LocalContext.current
     val prefs = remember { Prefs(ctx) }
-    var screen by remember { mutableStateOf(if (prefs.portal.isBlank()) "setup" else "connect") }
+    var screen by remember { mutableStateOf(if (!prefs.isConfigured) "setup" else "connect") }
     var detail by remember { mutableStateOf<Pair<String, VodItem>?>(null) }
     var tab by remember { mutableIntStateOf(0) }
     val live = remember { LiveState() }
@@ -118,7 +120,7 @@ fun App() {
     Box(Modifier.fillMaxSize().background(Bg)) {
         val d = detail
         when {
-            screen == "setup" -> SetupScreen(prefs, hasSaved = prefs.portal.isNotBlank(),
+            screen == "setup" -> SetupScreen(prefs, hasSaved = prefs.isConfigured,
                 onCancel = { screen = if (Session.client != null) "home" else "connect" }) {
                 live.reset(); movies.reset(); series.reset(); Session.client = null
                 screen = "connect"
@@ -138,13 +140,18 @@ fun App() {
 
 @Composable
 fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: () -> Unit) {
+    var mode by remember { mutableStateOf(prefs.mode) }
     var portal by remember { mutableStateOf(prefs.portal) }
     var mac by remember { mutableStateOf(prefs.mac.ifBlank { "00:1A:79:" }) }
     var serial by remember { mutableStateOf(prefs.serial) }
     var dev1 by remember { mutableStateOf(prefs.deviceId) }
     var dev2 by remember { mutableStateOf(prefs.deviceId2) }
+    var xtServer by remember { mutableStateOf(prefs.xtServer) }
+    var xtUser by remember { mutableStateOf(prefs.xtUser) }
+    var xtPass by remember { mutableStateOf(prefs.xtPass) }
     var err by remember { mutableStateOf<String?>(null) }
     if (hasSaved) BackHandler(onBack = onCancel)
+    val w = Modifier.width(560.dp)
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 48.dp, vertical = 32.dp),
@@ -153,40 +160,64 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
     ) {
         Text("Sanj TV", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Accent)
         Spacer(Modifier.height(8.dp))
-        Text("Enter the portal details from your provider", fontSize = 18.sp, color = TextDim)
-        Spacer(Modifier.height(28.dp))
-        OutlinedTextField(
-            value = portal, onValueChange = { portal = it },
-            label = { Text("Portal URL (e.g. http://example.com:8080/c/)") },
-            singleLine = true, modifier = Modifier.width(560.dp),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-        )
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = mac, onValueChange = { mac = it.uppercase() },
-            label = { Text("MAC address") },
-            singleLine = true, modifier = Modifier.width(560.dp),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-        )
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = serial, onValueChange = { serial = it },
-            label = { Text("Serial number (optional, copy from TiVimate)") },
-            singleLine = true, modifier = Modifier.width(560.dp),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-        )
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.width(560.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("How does your provider log you in?", fontSize = 18.sp, color = TextDim)
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            FocusBox(onClick = { mode = "xtream"; err = null }, selected = mode == "xtream", shape = RoundedCornerShape(20.dp)) {
+                Text("Xtream (username & password)", Modifier.padding(horizontal = 18.dp, vertical = 10.dp), fontSize = 17.sp, color = Color.White)
+            }
+            FocusBox(onClick = { mode = "portal"; err = null }, selected = mode == "portal", shape = RoundedCornerShape(20.dp)) {
+                Text("Portal (MAC address)", Modifier.padding(horizontal = 18.dp, vertical = 10.dp), fontSize = 17.sp, color = Color.White)
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+
+        if (mode == "xtream") {
             OutlinedTextField(
-                value = dev1, onValueChange = { dev1 = it },
-                label = { Text("Device ID (optional)") },
-                singleLine = true, modifier = Modifier.weight(1f),
+                value = xtServer, onValueChange = { xtServer = it },
+                label = { Text("Server (e.g. http://xt.example.com) or full M3U link") },
+                singleLine = true, modifier = w,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
             )
+            Spacer(Modifier.height(12.dp))
             OutlinedTextField(
-                value = dev2, onValueChange = { dev2 = it },
-                label = { Text("Device ID 2 (optional)") },
-                singleLine = true, modifier = Modifier.weight(1f),
+                value = xtUser, onValueChange = { xtUser = it.trim() },
+                label = { Text("Username") }, singleLine = true, modifier = w,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
             )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = xtPass, onValueChange = { xtPass = it.trim() },
+                label = { Text("Password") }, singleLine = true, modifier = w,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+            )
+        } else {
+            OutlinedTextField(
+                value = portal, onValueChange = { portal = it },
+                label = { Text("Portal URL (e.g. http://example.com:8080/c/)") },
+                singleLine = true, modifier = w,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = mac, onValueChange = { mac = it.uppercase() },
+                label = { Text("MAC address") }, singleLine = true, modifier = w,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = serial, onValueChange = { serial = it },
+                label = { Text("Serial number (optional, copy from TiVimate)") },
+                singleLine = true, modifier = w,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(w, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(value = dev1, onValueChange = { dev1 = it },
+                    label = { Text("Device ID (optional)") }, singleLine = true, modifier = Modifier.weight(1f))
+                OutlinedTextField(value = dev2, onValueChange = { dev2 = it },
+                    label = { Text("Device ID 2 (optional)") }, singleLine = true, modifier = Modifier.weight(1f))
+            }
         }
         err?.let {
             Spacer(Modifier.height(12.dp))
@@ -194,14 +225,27 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
         }
         Spacer(Modifier.height(24.dp))
         TvButton("Save and connect", onClick = {
-            val m = mac.trim()
-            when {
-                portal.isBlank() -> err = "Enter the portal URL."
-                !Regex("([0-9A-F]{2}:){5}[0-9A-F]{2}").matches(m) -> err = "MAC should look like 00:1A:79:12:34:56"
-                else -> {
-                    prefs.portal = portal.trim(); prefs.mac = m
-                    prefs.serial = serial.trim(); prefs.deviceId = dev1.trim(); prefs.deviceId2 = dev2.trim()
-                    onSaved()
+            if (mode == "xtream") {
+                var srv = xtServer.trim(); var u = xtUser; var pw = xtPass
+                XtreamClient.parseM3u(srv)?.let { (a, b, c) -> srv = a; u = b; pw = c; xtServer = a; xtUser = b; xtPass = c }
+                when {
+                    srv.isBlank() -> err = "Enter the server address."
+                    u.isBlank() || pw.isBlank() -> err = "Enter the username and password."
+                    else -> {
+                        prefs.mode = "xtream"; prefs.xtServer = srv; prefs.xtUser = u; prefs.xtPass = pw
+                        onSaved()
+                    }
+                }
+            } else {
+                val m = mac.trim()
+                when {
+                    portal.isBlank() -> err = "Enter the portal URL."
+                    !Regex("([0-9A-F]{2}:){5}[0-9A-F]{2}").matches(m) -> err = "MAC should look like 00:1A:79:12:34:56"
+                    else -> {
+                        prefs.mode = "portal"; prefs.portal = portal.trim(); prefs.mac = m
+                        prefs.serial = serial.trim(); prefs.deviceId = dev1.trim(); prefs.deviceId2 = dev2.trim()
+                        onSaved()
+                    }
                 }
             }
         })
@@ -217,7 +261,12 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
     LaunchedEffect(attempt) {
         error = null
         val r = withContext(Dispatchers.IO) {
-            runCatching { StalkerClient(prefs.portal, prefs.mac, prefs.serial, prefs.deviceId, prefs.deviceId2).also { it.connect() } }
+            runCatching {
+                val c: IptvSource = if (prefs.mode == "xtream") XtreamClient(prefs.xtServer, prefs.xtUser, prefs.xtPass)
+                else StalkerClient(prefs.portal, prefs.mac, prefs.serial, prefs.deviceId, prefs.deviceId2)
+                c.connect()
+                c
+            }
         }
         r.onSuccess { Session.client = it; onDone() }
             .onFailure { error = it.message ?: "Couldn't connect." }
@@ -375,7 +424,7 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
     LaunchedEffect(s.kind) {
         if (!s.catsLoaded) {
             val r = withContext(Dispatchers.IO) {
-                runCatching { loadCategories(Session.client ?: error("Not connected"), s.kind) }
+                runCatching { (Session.client ?: error("Not connected")).browseCategories(s.kind) }
             }
             r.exceptionOrNull()?.let { s.error = it.message }
             r.getOrNull()?.let { (type, cats) ->
@@ -421,25 +470,6 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
     }
 }
 
-private fun isSeriesLike(title: String): Boolean =
-    Regex("SERIES|SHOWS|TV SHOW|SEASON|SÉRIE|SERIE", RegexOption.IGNORE_CASE).containsMatchIn(title)
-
-/**
- * Many providers put TV series inside the movie (vod) section. Split it by category name;
- * fall back to the portal's own series section when the vod section has no series categories.
- */
-private fun loadCategories(c: StalkerClient, kind: String): Pair<String, List<Genre>> {
-    val vod = runCatching { c.vodCategories("vod") }
-    if (kind == "movies") {
-        val all = vod.getOrThrow()
-        val (ser, mov) = all.partition { isSeriesLike(it.title) }
-        return "vod" to if (ser.isEmpty()) all else mov.filter { it.id != "*" }
-    }
-    val vodSeries = vod.getOrDefault(emptyList()).filter { isSeriesLike(it.title) }
-    if (vodSeries.isNotEmpty()) return "vod" to vodSeries
-    return "series" to c.vodCategories("series")
-}
-
 @Composable
 fun PosterCard(item: VodItem, onClick: () -> Unit) {
     FocusBox(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
@@ -458,7 +488,8 @@ fun PosterCard(item: VodItem, onClick: () -> Unit) {
 // ---------------- details ----------------
 
 @Composable
-fun DetailScreen(type: String, item: VodItem, onBack: () -> Unit) {
+fun DetailScreen(type: String, start: VodItem, onBack: () -> Unit) {
+    var item by remember { mutableStateOf(start) }
     BackHandler(onBack = onBack)
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -488,6 +519,11 @@ fun DetailScreen(type: String, item: VodItem, onBack: () -> Unit) {
             }
             r.onSuccess { seasons = it; if (it.isEmpty()) msg = "No seasons found for this show." }
                 .onFailure { msg = it.message; seasons = emptyList() }
+        } else {
+            val current = item
+            item = withContext(Dispatchers.IO) {
+                runCatching { (Session.client ?: error("Not connected")).movieInfo(current) }.getOrDefault(current)
+            }
         }
         focusSoon(fr)
     }
@@ -556,7 +592,13 @@ fun DetailScreen(type: String, item: VodItem, onBack: () -> Unit) {
                                     Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                                         Text(if (ep.number.isNotBlank()) "E${ep.number}" else "",
                                             Modifier.width(56.dp), color = TextDim, fontSize = 17.sp)
-                                        Text(ep.title, color = Color.White, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Column {
+                                            Text(ep.title, color = Color.White, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            if (ep.plot.isNotBlank()) {
+                                                Spacer(Modifier.height(2.dp))
+                                                Text(ep.plot, color = TextDim, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                            }
+                                        }
                                     }
                                 }
                             }
