@@ -203,13 +203,21 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
         Spacer(Modifier.height(20.dp))
         OutlinedTextField(
             value = tmdbKey, onValueChange = { tmdbKey = it.trim() },
-            label = { Text("TMDB key (optional) — adds Trending and In theatres rows") },
+            label = { Text(if (ca.sanjwad.tvplayer.BuildConfig.TMDB_KEY.isNotBlank()) "Your own TMDB key (optional — a built-in key is already used)"
+                else "TMDB key (optional) — adds Trending and In theatres rows") },
             singleLine = true, modifier = w,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
         )
         err?.let {
             Spacer(Modifier.height(12.dp))
             Text(it, color = ErrorRed, fontSize = 16.sp)
+        }
+        Spacer(Modifier.height(16.dp))
+        Row(w, verticalAlignment = Alignment.CenterVertically) {
+            Text("TMDB", Modifier.clip(RoundedCornerShape(4.dp)).background(Color(0xFF0D253F))
+                .padding(horizontal = 6.dp, vertical = 2.dp), color = Color(0xFF01B4E4), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(8.dp))
+            Text("This product uses the TMDB API but is not endorsed or certified by TMDB.", fontSize = 12.sp, color = TextDim)
         }
         (Session.client as? XtreamClient)?.let { c ->
             Spacer(Modifier.height(16.dp))
@@ -248,7 +256,9 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
         }
         r.onSuccess { c ->
             Library.load(ctx, "${prefs.xtServer}|${prefs.xtUser}")
-            Session.tmdb = prefs.tmdbKey.takeIf { it.isNotBlank() }?.let { ca.sanjwad.tvplayer.stalker.TmdbClient(it) }
+            // Your own key if you entered one, otherwise the key built into the app.
+            Session.tmdb = prefs.tmdbKey.ifBlank { ca.sanjwad.tvplayer.BuildConfig.TMDB_KEY }
+                .takeIf { it.isNotBlank() }?.let { ca.sanjwad.tvplayer.stalker.TmdbClient(it) }
             Session.client = c
             // Start fetching Movies and TV Shows categories now, while Live TV is on screen.
             kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
