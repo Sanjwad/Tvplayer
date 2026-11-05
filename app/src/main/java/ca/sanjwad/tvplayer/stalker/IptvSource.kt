@@ -14,6 +14,15 @@ interface IptvSource {
     /** What's on now and next for a channel (may be empty if the provider has no guide). */
     fun nowNext(channel: Channel): List<Programme> = emptyList()
 
+    /** Guide entries overlapping [from, to) from the full guide, if it has been downloaded. */
+    fun programmes(channel: Channel, from: Long, to: Long): List<Programme> = emptyList()
+
+    /** Download the full TV guide if it is missing or old. Safe to call repeatedly. */
+    fun ensureGuide() {}
+
+    /** Short status of the full guide, e.g. "Downloading TV guide…" or "" when ready. */
+    val guideStatus: String get() = ""
+
     /**
      * Categories for a tab ("movies" or "series"). Returns the section type to use for later
      * calls (e.g. "vod" or "series") along with the categories.

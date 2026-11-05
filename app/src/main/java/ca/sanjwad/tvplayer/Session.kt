@@ -1,6 +1,8 @@
 package ca.sanjwad.tvplayer
 
 import android.content.Context
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import ca.sanjwad.tvplayer.stalker.Channel
 import ca.sanjwad.tvplayer.stalker.IptvSource
 
@@ -9,6 +11,8 @@ object Session {
     @Volatile var client: IptvSource? = null
     @Volatile var channels: List<Channel> = emptyList()
     /** Seasons per series id, so My List doesn't refetch them every visit. */
+    /** Bumped when the full TV guide finishes loading, so guide rows refresh. */
+    var guideVersion by androidx.compose.runtime.mutableIntStateOf(0)
     @Volatile var tmdb: ca.sanjwad.tvplayer.stalker.TmdbClient? = null
     val seasonCache = java.util.concurrent.ConcurrentHashMap<String, List<ca.sanjwad.tvplayer.stalker.Season>>()
 }

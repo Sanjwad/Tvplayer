@@ -78,6 +78,7 @@ class LiveState {
     var all by mutableStateOf<List<Channel>>(emptyList())
     var genre by mutableStateOf("*")
     var query by mutableStateOf("")
+    var guideView by mutableStateOf(false)
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
     var loaded = false
@@ -253,6 +254,8 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
             kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
                 runCatching { c.browseCategories("movies") }
                 runCatching { c.browseCategories("series") }
+                runCatching { c.ensureGuide() }
+                withContext(Dispatchers.Main) { Session.guideVersion++ }
             }
             onDone()
         }
@@ -305,7 +308,7 @@ fun clockTime(ms: Long): String = clock.format(java.util.Date(ms))
 @Composable
 fun ChannelGuide(c: ca.sanjwad.tvplayer.stalker.Channel) {
     var guide by remember(c.id) { mutableStateOf<List<ca.sanjwad.tvplayer.stalker.Programme>?>(null) }
-    LaunchedEffect(c.id) {
+    LaunchedEffect(c.id, Session.guideVersion) {
         guide = withContext(Dispatchers.IO) { runCatching { Session.client?.nowNext(c) }.getOrNull().orEmpty() }
     }
     val g = guide ?: return
@@ -386,6 +389,23 @@ fun LiveScreen(s: LiveState) {
                 if (s.genre == EDIT_ID) Column(Modifier.weight(1f).fillMaxHeight()) {
                     ManageGroups("live", s.genres) { s.genre = "*" }
                 } else Column(Modifier.weight(1f).fillMaxHeight()) {
+                    if (s.genre != SEARCH_ID) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                            FocusBox(onClick = { s.guideView = false }, selected = !s.guideView, shape = RoundedCornerShape(16.dp)) {
+                                Text("☰  List", Modifier.padding(horizontal = 14.dp, vertical = 6.dp), fontSize = 14.sp, color = Color.White)
+                            }
+                            FocusBox(onClick = { s.guideView = true }, selected = s.guideView, shape = RoundedCornerShape(16.dp)) {
+                                Text("▦  Guide", Modifier.padding(horizontal = 14.dp, vertical = 6.dp), fontSize = 14.sp, color = Color.White)
+                            }
+                        }
+                    }
+                    if (s.guideView && s.genre != SEARCH_ID) {
+                        GuideGrid(shown) { index ->
+                            Session.channels = shown
+                            ctx.startActivity(Intent(ctx, PlayerActivity::class.java).putExtra("live_index", index))
+                        }
+                        return@Column
+                    }
                     if (s.genre == SEARCH_ID) {
                         SearchField(s.query, { s.query = it }, "Channel name or number")
                         Spacer(Modifier.height(10.dp))

@@ -9,6 +9,8 @@ data class Channel(
     val cmd: String,
     val logo: String?,
     val genreId: String,
+    /** The channel's id in the provider's full TV guide (XMLTV), if any. */
+    val epgId: String = "",
 )
 
 data class VodItem(

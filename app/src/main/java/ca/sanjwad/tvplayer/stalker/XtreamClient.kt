@@ -126,9 +126,10 @@ class XtreamClient(
 
     override fun liveChannels(): List<Channel> {
         val file = cacheFile("live_channels")
-        readChannels(file, maxAgeMs = 6 * HOUR)?.let { return it }
+        // Older saved lists lack guide ids; refetch those once.
+        readChannels(file, maxAgeMs = 6 * HOUR)?.takeIf { l -> l.any { it.epgId.isNotEmpty() } }?.let { return it }
         return try {
-            streamObjects("action" to "get_live_streams", fields = setOf("stream_id", "name", "num", "stream_icon", "category_id"))
+            streamObjects("action" to "get_live_streams", fields = setOf("stream_id", "name", "num", "stream_icon", "category_id", "epg_channel_id"))
                 .mapNotNull {
                     val id = it.s("stream_id").ifEmpty { return@mapNotNull null }
                     Channel(
@@ -138,6 +139,7 @@ class XtreamClient(
                         cmd = "$root/live/$user/$pass/$id.m3u8",
                         logo = it.im("stream_icon"),
                         genreId = it.s("category_id"),
+                        epgId = it.s("epg_channel_id"),
                     )
                 }.sortedBy { if (it.number > 0) it.number else Int.MAX_VALUE }
                 .also { writeChannels(file, it) }
@@ -150,7 +152,7 @@ class XtreamClient(
         f ?: return
         runCatching {
             val a = JSONArray()
-            list.forEach { a.put(JSONArray().put(it.id).put(it.name).put(it.number).put(it.logo ?: "").put(it.genreId)) }
+            list.forEach { a.put(JSONArray().put(it.id).put(it.name).put(it.number).put(it.logo ?: "").put(it.genreId).put(it.epgId)) }
             f.writeText(a.toString())
         }
     }
@@ -162,7 +164,8 @@ class XtreamClient(
             (0 until a.length()).map { i ->
                 val r = a.getJSONArray(i)
                 val id = r.getString(0)
-                Channel(id, r.getString(1), r.optInt(2), "$root/live/$user/$pass/$id.m3u8", r.optString(3).ifBlank { null }, r.optString(4))
+                Channel(id, r.getString(1), r.optInt(2), "$root/live/$user/$pass/$id.m3u8", r.optString(3).ifBlank { null },
+                    r.optString(4), r.optString(5))
             }
         }.getOrNull()
     }
@@ -209,8 +212,135 @@ class XtreamClient(
         }.filter { it.end > now }.sortedBy { it.start }.take(4)
     }
 
+    // ---------- full guide (XMLTV) ----------
+
+    @Volatile private var guide: Map<String, List<Programme>> = emptyMap()
+    @Volatile private var guideLoadedAt = 0L
+    @Volatile private var guideStatusText: String = ""
+    override val guideStatus: String get() = guideStatusText
+    private val guideLock = Any()
+
+    private val guideHttp = http.newBuilder()
+        .callTimeout(10, TimeUnit.MINUTES)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .build()
+
+    override fun programmes(channel: Channel, from: Long, to: Long): List<Programme> {
+        val g = guide[channel.epgId.lowercase()] ?: return emptyList()
+        return g.filter { it.end > from && it.start < to }
+    }
+
+    override fun ensureGuide() {
+        synchronized(guideLock) {
+            val now = System.currentTimeMillis()
+            if (guide.isNotEmpty() && now - guideLoadedAt < 12 * HOUR) return
+            val file = cacheFile("guide")
+            if (guide.isEmpty() && fresh(file, 12 * HOUR)) {
+                readGuide(file)?.let { guide = it; guideLoadedAt = file!!.lastModified(); return }
+            }
+            guideStatusText = "Downloading TV guide…"
+            try {
+                val wanted = runCatching { liveChannels() }.getOrDefault(emptyList())
+                    .mapNotNull { it.epgId.lowercase().ifEmpty { null } }.toSet()
+                val g = downloadGuide(wanted, now - HOUR, now + 26 * HOUR)
+                if (g.isNotEmpty()) {
+                    guide = g; guideLoadedAt = now
+                    writeGuide(file, g)
+                }
+                guideStatusText = if (g.isEmpty()) "Your provider's full TV guide was empty." else ""
+            } catch (e: Exception) {
+                // Keep an older copy if there is one.
+                if (guide.isEmpty()) readGuide(file)?.let { guide = it; guideLoadedAt = now }
+                guideStatusText = if (guide.isEmpty()) "Couldn't download the TV guide: ${e.message}" else ""
+            }
+        }
+    }
+
+    private val xmltvTime = java.text.SimpleDateFormat("yyyyMMddHHmmss Z", java.util.Locale.US)
+    private val xmltvTimeNoZone = java.text.SimpleDateFormat("yyyyMMddHHmmss", java.util.Locale.US)
+        .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+
+    private fun parseXmltvTime(v: String?): Long? {
+        if (v.isNullOrBlank()) return null
+        val t = v.trim()
+        return runCatching { xmltvTime.parse(if (t.length > 14 && t[14] != ' ') t.substring(0, 14) + " " + t.substring(14).trim() else t)?.time }
+            .getOrNull() ?: runCatching { xmltvTimeNoZone.parse(t.take(14))?.time }.getOrNull()
+    }
+
+    /** Streams the provider's xmltv.php, keeping only wanted channels within [from, to). */
+    private fun downloadGuide(wanted: Set<String>, from: Long, to: Long): Map<String, List<Programme>> {
+        val url = "$root/xmltv.php".toHttpUrl().newBuilder()
+            .addQueryParameter("username", user).addQueryParameter("password", pass).build()
+        val req = Request.Builder().url(url).header("User-Agent", Net.UA).build()
+        val out = HashMap<String, MutableList<Programme>>()
+        guideHttp.newCall(req).execute().use { r ->
+            if (!r.isSuccessful) throw IOException("error ${r.code}")
+            val parser = android.util.Xml.newPullParser()
+            parser.setInput(r.body!!.charStream())
+            var event = parser.eventType
+            var ch: String? = null; var start: Long? = null; var stop: Long? = null
+            var title = ""; var desc = ""; var field: String? = null
+            while (event != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+                when (event) {
+                    org.xmlpull.v1.XmlPullParser.START_TAG -> when (parser.name) {
+                        "programme" -> {
+                            ch = parser.getAttributeValue(null, "channel")?.lowercase()
+                            start = parseXmltvTime(parser.getAttributeValue(null, "start"))
+                            stop = parseXmltvTime(parser.getAttributeValue(null, "stop"))
+                            title = ""; desc = ""
+                        }
+                        "title", "desc" -> field = parser.name
+                    }
+                    org.xmlpull.v1.XmlPullParser.TEXT -> when (field) {
+                        "title" -> if (title.isEmpty()) title = parser.text.trim()
+                        "desc" -> if (desc.isEmpty()) desc = parser.text.trim().take(400)
+                    }
+                    org.xmlpull.v1.XmlPullParser.END_TAG -> when (parser.name) {
+                        "title", "desc" -> field = null
+                        "programme" -> {
+                            val c = ch; val s0 = start; val e0 = stop
+                            if (c != null && s0 != null && e0 != null && e0 > from && s0 < to &&
+                                (wanted.isEmpty() || c in wanted) && title.isNotEmpty()
+                            ) out.getOrPut(c) { mutableListOf() }.add(Programme(title, desc, s0, e0))
+                            ch = null
+                        }
+                    }
+                }
+                event = parser.next()
+            }
+        }
+        return out.mapValues { (_, v) -> v.sortedBy { it.start }.distinctBy { it.start } }
+    }
+
+    private fun writeGuide(f: java.io.File?, g: Map<String, List<Programme>>) {
+        f ?: return
+        runCatching {
+            val o = JSONObject()
+            g.forEach { (k, list) ->
+                o.put(k, JSONArray().apply { list.forEach { put(JSONArray().put(it.start).put(it.end).put(it.title).put(it.description)) } })
+            }
+            f.writeText(o.toString())
+        }
+    }
+
+    private fun readGuide(f: java.io.File?): Map<String, List<Programme>>? {
+        if (f == null || !f.exists()) return null
+        return runCatching {
+            val o = JSONObject(f.readText())
+            o.keys().asSequence().associateWith { k ->
+                val a = o.getJSONArray(k)
+                (0 until a.length()).map { i -> a.getJSONArray(i).let { r -> Programme(r.getString(2), r.optString(3), r.getLong(0), r.getLong(1)) } }
+            }
+        }.getOrNull()
+    }
+
     override fun nowNext(channel: Channel): List<Programme> {
         val now = System.currentTimeMillis()
+        // Prefer the full guide when it's loaded.
+        if (channel.epgId.isNotEmpty()) {
+            val g = programmes(channel, now, now + 12 * HOUR).take(3)
+            if (g.isNotEmpty()) return g
+        }
         epgCache[channel.id]?.let { (at, list) ->
             val firstEnd = list.firstOrNull()?.end ?: 0
             if (now - at < 15 * 60_000 && (list.isEmpty() || firstEnd > now)) return list.filter { it.end > now }
