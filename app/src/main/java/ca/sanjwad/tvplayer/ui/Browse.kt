@@ -229,8 +229,9 @@ private fun PosterRow(
 
 @Composable
 private fun Hero(item: VodItem?) {
-    if (item == null) return // nothing selected yet: let the rows start at the top
+    // Always the same height, even before anything is selected, so the rows never jump.
     Box(Modifier.fillMaxWidth().height(220.dp)) {
+        if (item == null) return@Box
         AsyncImage(
             model = item.backdrop ?: item.poster, contentDescription = null,
             modifier = Modifier.fillMaxHeight().fillMaxWidth(0.62f).align(Alignment.TopEnd).clip(RoundedCornerShape(10.dp)),
@@ -329,6 +330,10 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
     }
     val (hero, setHero) = rememberHero()
     val label = kindLabel(s.kind)
+    // Show the first title straight away so the panel is filled before you move into the rows.
+    val firstTitle = s.trending.firstNotNullOfOrNull { it.second?.firstOrNull() }
+        ?: s.categories.firstNotNullOfOrNull { c -> if (Library.isHidden(s.kind, c.id)) null else s.rowItems[c.id]?.firstOrNull() }
+    LaunchedEffect(firstTitle?.id) { if (hero == null && firstTitle != null) setHero(firstTitle) }
 
     fun openGrid(categoryId: String) {
         s.category = categoryId; s.items = emptyList(); s.total = 0; s.page = 0
@@ -534,6 +539,8 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
             badgeFor = { item -> byId[item.id]?.second?.badge })
     }
 
+    val firstSaved = (newEps + notStarted + caughtUp).firstOrNull()?.first?.item ?: movies.firstOrNull()?.item
+    LaunchedEffect(firstSaved?.id) { if (hero == null && firstSaved != null) setHero(firstSaved) }
     Column(Modifier.fillMaxSize()) {
         Hero(hero)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
