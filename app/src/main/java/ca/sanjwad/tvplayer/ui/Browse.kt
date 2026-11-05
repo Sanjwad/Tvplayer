@@ -67,11 +67,10 @@ fun HomeScreen(
     onSettings: () -> Unit,
 ) {
     // (label, section id) — ids stay stable so saved state keeps working.
-    val R = ca.sanjwad.tvplayer.R.drawable
     val entries = listOf(
-        Triple("Search", 5, R.ic_menu_search), Triple("Live TV", 0, R.ic_menu_live),
-        Triple("Movies", 1, R.ic_menu_movies), Triple("TV Shows", 2, R.ic_menu_shows),
-        Triple("My List", 3, R.ic_menu_list), Triple("Settings", 4, R.ic_menu_settings),
+        Triple("Search", 5, ca.sanjwad.tvplayer.R.drawable.ic_menu_search), Triple("Live TV", 0, ca.sanjwad.tvplayer.R.drawable.ic_menu_live),
+        Triple("Movies", 1, ca.sanjwad.tvplayer.R.drawable.ic_menu_movies), Triple("TV Shows", 2, ca.sanjwad.tvplayer.R.drawable.ic_menu_shows),
+        Triple("My List", 3, ca.sanjwad.tvplayer.R.drawable.ic_menu_list), Triple("Settings", 4, ca.sanjwad.tvplayer.R.drawable.ic_menu_settings),
     )
     val fr = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(150); runCatching { fr.requestFocus() } }
