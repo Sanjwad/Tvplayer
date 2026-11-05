@@ -170,79 +170,156 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
     var xtPass by remember { mutableStateOf(prefs.xtPass) }
     var tmdbKey by remember { mutableStateOf(prefs.tmdbKey) }
     var err by remember { mutableStateOf<String?>(null) }
-    if (hasSaved) BackHandler(onBack = onCancel)
-    val w = Modifier.width(560.dp)
+    // With a working login, the details stay locked until "Change login details" is pressed.
+    var editing by remember { mutableStateOf(!hasSaved) }
+    var advanced by remember { mutableStateOf(false) }
+    var tmdbSaved by remember { mutableStateOf(false) }
+    var startLast by remember { mutableStateOf(prefs.startOnLastChannel) }
+    if (hasSaved) BackHandler { if (editing) { editing = false; err = null } else onCancel() }
+    val w = Modifier.width(600.dp)
+    val fr = remember { FocusRequester() }
+    LaunchedEffect(editing) { focusSoon(fr) }
 
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 48.dp, vertical = 32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text("Sanj TV", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Accent)
-        Spacer(Modifier.height(8.dp))
-        Text("Enter the Xtream login from your provider", fontSize = 18.sp, color = TextDim)
-        Spacer(Modifier.height(24.dp))
+    fun save() {
+        var srv = xtServer.trim(); var u = xtUser; var pw = xtPass
+        XtreamClient.parseM3u(srv)?.let { (a, b, c) -> srv = a; u = b; pw = c; xtServer = a; xtUser = b; xtPass = c }
+        when {
+            srv.isBlank() -> err = "Enter the server address."
+            u.isBlank() || pw.isBlank() -> err = "Enter the username and password."
+            else -> { prefs.xtServer = srv; prefs.xtUser = u; prefs.xtPass = pw; onSaved() }
+        }
+    }
+
+    @Composable
+    fun loginFields() {
         OutlinedTextField(
             value = xtServer, onValueChange = { xtServer = it },
             label = { Text("Server (e.g. http://xt.example.com) or full M3U link") },
-            singleLine = true, modifier = w,
+            singleLine = true, modifier = w.focusRequester(fr),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(10.dp))
         OutlinedTextField(
             value = xtUser, onValueChange = { xtUser = it.trim() },
             label = { Text("Username") }, singleLine = true, modifier = w,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(10.dp))
         OutlinedTextField(
             value = xtPass, onValueChange = { xtPass = it.trim() },
             label = { Text("Password") }, singleLine = true, modifier = w,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
         )
-        Spacer(Modifier.height(20.dp))
-        OutlinedTextField(
-            value = tmdbKey, onValueChange = { tmdbKey = it.trim() },
-            label = { Text(if (ca.sanjwad.tvplayer.BuildConfig.TMDB_KEY.isNotBlank()) "Your own TMDB key (optional — a built-in key is already used)"
-                else "TMDB key (optional) — adds Trending and In theatres rows") },
-            singleLine = true, modifier = w,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-        )
         err?.let {
-            Spacer(Modifier.height(12.dp))
-            Text(it, color = ErrorRed, fontSize = 16.sp)
+            Spacer(Modifier.height(10.dp))
+            Text(it, color = ErrorRed, fontSize = 15.sp)
         }
-        Spacer(Modifier.height(14.dp))
-        var startLast by remember { mutableStateOf(prefs.startOnLastChannel) }
-        FocusBox(onClick = { startLast = !startLast; prefs.startOnLastChannel = startLast }, modifier = w, shape = RoundedCornerShape(8.dp)) {
-            Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TvButton("Save and connect", onClick = { save() })
+            if (hasSaved) TvButton("Cancel", onClick = {
+                editing = false; err = null
+                xtServer = prefs.xtServer; xtUser = prefs.xtUser; xtPass = prefs.xtPass
+            })
+        }
+    }
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 48.dp, vertical = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        if (!hasSaved) {
+            // First run: just the login.
+            Spacer(Modifier.height(40.dp))
+            Text("Sanj TV", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Accent)
+            Spacer(Modifier.height(8.dp))
+            Text("Enter the Xtream login from your provider", fontSize = 18.sp, color = TextDim)
+            Spacer(Modifier.height(24.dp))
+            loginFields()
+            return@Column
+        }
+
+        Text("Settings", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = w)
+        Spacer(Modifier.height(20.dp))
+
+        // ---- Account
+        Text("ACCOUNT", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextDim, modifier = w)
+        Spacer(Modifier.height(8.dp))
+        Column(w.clip(RoundedCornerShape(10.dp)).background(Panel).padding(18.dp)) {
+            if (!editing) {
+                val exp = (Session.client as? XtreamClient)?.expiry?.toLongOrNull()?.let {
+                    java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(it * 1000))
+                }
+                Text(prefs.xtServer.removePrefix("http://").removePrefix("https://"), fontSize = 18.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                Text("Username: ${prefs.xtUser}    ·    Password: ••••••", fontSize = 14.sp, color = TextDim)
+                Text(if (Session.client != null) "Connected" + (exp?.let { "  ·  subscription ends $it" } ?: "") else "Not connected",
+                    fontSize = 14.sp, color = if (Session.client != null) Accent else ErrorRed)
+                Spacer(Modifier.height(14.dp))
+                TvButton("Change login details", onClick = { editing = true }, modifier = Modifier.focusRequester(fr))
+            } else {
+                Text("Change login details", fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                Text("Saving reconnects with the new details. Favourites and My List are kept per login.", fontSize = 13.sp, color = TextDim)
+                Spacer(Modifier.height(12.dp))
+                loginFields()
+            }
+        }
+
+        // ---- Options
+        Spacer(Modifier.height(24.dp))
+        Text("OPTIONS", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextDim, modifier = w)
+        Spacer(Modifier.height(8.dp))
+        FocusBox(onClick = { startLast = !startLast; prefs.startOnLastChannel = startLast }, modifier = w, shape = RoundedCornerShape(10.dp)) {
+            Row(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Open the last live channel when Sanj TV starts", Modifier.weight(1f), fontSize = 15.sp, color = Color.White)
                 Text(if (startLast) "On" else "Off", fontSize = 15.sp, fontWeight = FontWeight.Bold,
                     color = if (startLast) Accent else TextDim)
             }
         }
-        Spacer(Modifier.height(16.dp))
+
+        // ---- Advanced (collapsed)
+        Spacer(Modifier.height(24.dp))
+        FocusBox(onClick = { advanced = !advanced }, modifier = w, shape = RoundedCornerShape(10.dp)) {
+            Row(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Advanced", Modifier.weight(1f), fontSize = 15.sp, color = Color.White)
+                Text(if (advanced) "▲" else "▼", fontSize = 14.sp, color = TextDim)
+            }
+        }
+        if (advanced) {
+            Spacer(Modifier.height(10.dp))
+            Column(w.clip(RoundedCornerShape(10.dp)).background(Panel).padding(18.dp)) {
+                Text("Your own TMDB key", fontSize = 15.sp, color = Color.White)
+                Text(if (ca.sanjwad.tvplayer.BuildConfig.TMDB_KEY.isNotBlank()) "Optional. Sanj TV already has a built-in key; leave this empty to use it."
+                    else "Optional. Adds Trending rows and episode descriptions.", fontSize = 13.sp, color = TextDim)
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = tmdbKey, onValueChange = { tmdbKey = it.trim(); tmdbSaved = false },
+                    label = { Text("TMDB key") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TvButton("Save key", onClick = {
+                        prefs.tmdbKey = tmdbKey.trim()
+                        Session.tmdb = prefs.tmdbKey.ifBlank { ca.sanjwad.tvplayer.BuildConfig.TMDB_KEY }
+                            .takeIf { it.isNotBlank() }?.let { ca.sanjwad.tvplayer.stalker.TmdbClient(it) }
+                        tmdbSaved = true
+                    })
+                    if (tmdbSaved) Text("  ✓ Saved", fontSize = 14.sp, color = Accent)
+                }
+            }
+        }
+
+        // ---- About
+        Spacer(Modifier.height(28.dp))
+        Text("Sanj TV  ·  build ${ca.sanjwad.tvplayer.BuildConfig.VERSION_CODE}", fontSize = 13.sp, color = TextDim, modifier = w)
+        Spacer(Modifier.height(8.dp))
         Row(w, verticalAlignment = Alignment.CenterVertically) {
             Text("TMDB", Modifier.clip(RoundedCornerShape(4.dp)).background(Color(0xFF0D253F))
                 .padding(horizontal = 6.dp, vertical = 2.dp), color = Color(0xFF01B4E4), fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(8.dp))
             Text("This product uses the TMDB API but is not endorsed or certified by TMDB.", fontSize = 12.sp, color = TextDim)
         }
-        (Session.client as? XtreamClient)?.let { c ->
-            Spacer(Modifier.height(16.dp))
-            Text("Guide check: ${c.lastGuideReply}", fontSize = 12.sp, color = TextDim, modifier = w, maxLines = 4)
-        }
-        Spacer(Modifier.height(24.dp))
-        TvButton("Save and connect", onClick = {
-            prefs.tmdbKey = tmdbKey.trim()
-            var srv = xtServer.trim(); var u = xtUser; var pw = xtPass
-            XtreamClient.parseM3u(srv)?.let { (a, b, c) -> srv = a; u = b; pw = c; xtServer = a; xtUser = b; xtPass = c }
-            when {
-                srv.isBlank() -> err = "Enter the server address."
-                u.isBlank() || pw.isBlank() -> err = "Enter the username and password."
-                else -> { prefs.xtServer = srv; prefs.xtUser = u; prefs.xtPass = pw; onSaved() }
-            }
-        })
     }
 }
 
