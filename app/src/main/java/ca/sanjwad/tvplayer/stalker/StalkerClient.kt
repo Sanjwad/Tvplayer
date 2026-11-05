@@ -96,6 +96,8 @@ class StalkerClient(portalUrl: String, macAddress: String) {
         list += "$root/portal.php"
         list += "$root/stalker_portal/server/load.php"
         list += "$root/server/load.php"
+        list += "$root/c/portal.php"
+        list += "$root/c/server/load.php"
         return list.distinct()
     }
 
@@ -147,27 +149,29 @@ class StalkerClient(portalUrl: String, macAddress: String) {
     /** Logs in. Tries the usual API paths until one gives a token. */
     @Synchronized
     fun connect() {
-        var last: Exception? = null
+        val report = mutableListOf<String>()
+        var refused = false
         for (base in candidates) {
+            val short = base.removePrefix(root).ifEmpty { "/" }
             try {
                 token = null
                 val js = request(base, mapOf("type" to "stb", "action" to "handshake", "token" to "", "prehash" to "0"))
                     .optJSONObject("js")
                 val t = js?.optString("token").orEmpty()
-                if (t.isBlank()) continue
+                if (t.isBlank()) { report += "$short: no login token"; continue }
                 token = t
                 api = base
                 request(base, profileParams())
                 return
+            } catch (e: AuthException) {
+                refused = true; report += "$short: MAC refused"
             } catch (e: Exception) {
-                last = e
+                report += "$short: ${e.javaClass.simpleName} ${e.message.orEmpty()}".trim()
             }
         }
         api = null
-        throw IOException(
-            if (last is AuthException) "The portal refused this MAC address."
-            else last?.message ?: "Couldn't log in. Check the portal address and MAC."
-        )
+        val head = if (refused) "The portal refused this MAC address." else "Couldn't log in to $root."
+        throw IOException(head + "\n\n" + report.joinToString("\n"))
     }
 
     private fun call(params: Map<String, String>): JSONObject {
