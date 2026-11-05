@@ -39,6 +39,8 @@ val TextDim = Color(0xFF9AA4B2)
 val ErrorRed = Color(0xFFFF7A7A)
 
 val LogoYellow = Color(0xFFFFD166)
+val FocusFill = Color(0xFF2A3656)
+val SelectedFill = Color(0xFF1F2942)
 private val Poppins = androidx.compose.ui.text.font.FontFamily(
     androidx.compose.ui.text.font.Font(ca.sanjwad.tvplayer.R.font.poppins_bold, FontWeight.Bold),
     androidx.compose.ui.text.font.Font(ca.sanjwad.tvplayer.R.font.poppins_light, FontWeight.Light),
@@ -85,9 +87,10 @@ fun FocusBox(
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
+    // Stay navy and let the coral outline do the highlighting, so coral never mixes into pink.
     val bg = when {
-        focused -> Accent.copy(alpha = 0.30f)
-        selected -> Accent.copy(alpha = 0.14f)
+        focused -> FocusFill
+        selected -> SelectedFill
         else -> Panel
     }
     Box(
@@ -98,7 +101,7 @@ fun FocusBox(
             }
             .clip(shape)
             .background(bg)
-            .border(2.dp, if (focused) Accent else Color.Transparent, shape)
+            .border(2.5.dp, if (focused) Accent else Color.Transparent, shape)
             .clickable(onClick = onClick),
     ) { content(focused) }
 }

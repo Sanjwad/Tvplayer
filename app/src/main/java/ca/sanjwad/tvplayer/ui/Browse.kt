@@ -67,8 +67,12 @@ fun HomeScreen(
     onSettings: () -> Unit,
 ) {
     // (label, section id) — ids stay stable so saved state keeps working.
-    val entries = listOf("🔍   Search" to 5, "📺   Live TV" to 0, "🎬   Movies" to 1, "🎞   TV Shows" to 2,
-        "★   My List" to 3, "⚙   Settings" to 4)
+    val R = ca.sanjwad.tvplayer.R.drawable
+    val entries = listOf(
+        Triple("Search", 5, R.ic_menu_search), Triple("Live TV", 0, R.ic_menu_live),
+        Triple("Movies", 1, R.ic_menu_movies), Triple("TV Shows", 2, R.ic_menu_shows),
+        Triple("My List", 3, R.ic_menu_list), Triple("Settings", 4, R.ic_menu_settings),
+    )
     val fr = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(150); runCatching { fr.requestFocus() } }
 
@@ -89,7 +93,7 @@ fun HomeScreen(
             ) {
                 Logo(22.sp, Modifier.padding(start = 6.dp))
                 Spacer(Modifier.height(36.dp))
-                entries.forEach { (label, i) ->
+                entries.forEach { (label, i, icon) ->
                     FocusBox(
                         onClick = { if (i == 4) onSettings() else onSection(i) },
                         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
@@ -97,8 +101,15 @@ fun HomeScreen(
                         selected = i == section,
                         shape = RoundedCornerShape(8.dp),
                     ) {
-                        Text(label, Modifier.padding(horizontal = 14.dp, vertical = 11.dp), fontSize = 17.sp,
-                            color = if (i == 3) LogoYellow else Color.White)
+                        Row(Modifier.padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                            androidx.compose.material3.Icon(
+                                painter = androidx.compose.ui.res.painterResource(icon), contentDescription = null,
+                                tint = when { i == section -> Accent; i == 3 -> LogoYellow; else -> Color(0xFFC9D1DE) },
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Spacer(Modifier.width(14.dp))
+                            Text(label, fontSize = 17.sp, color = if (i == 3) LogoYellow else Color.White)
+                        }
                     }
                 }
             }
