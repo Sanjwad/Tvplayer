@@ -472,7 +472,7 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
     }
 
     val label = kindLabel(s.kind)
-    val side = listOf(Genre(SEARCH_ID, "🔍  Search"), Genre(LIST_ID, "★  My List")) + s.categories
+    val side = listOf(Genre(SEARCH_ID, "🔍  Search")) + s.categories
     Row(Modifier.fillMaxSize()) {
         SideList(side, s.category, 260) { g ->
             if (s.category != g.id) { s.category = g.id; loadPage(true) }

@@ -276,7 +276,7 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
             FocusBox(onClick = { openGrid("__search") }, shape = RoundedCornerShape(16.dp)) {
                 Text("🔍  Search", Modifier.padding(horizontal = 14.dp, vertical = 6.dp), fontSize = 14.sp, color = Color.White)
             }
-            FocusBox(onClick = { openGrid(s.categories.firstOrNull()?.id ?: "__list") }, shape = RoundedCornerShape(16.dp)) {
+            FocusBox(onClick = { openGrid(s.categories.firstOrNull()?.id ?: "__search") }, shape = RoundedCornerShape(16.dp)) {
                 Text("☰  All categories", Modifier.padding(horizontal = 14.dp, vertical = 6.dp), fontSize = 14.sp, color = Color.White)
             }
         }
@@ -293,15 +293,11 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                 if (waited >= 8) "Waiting for your provider… ${waited}s" else null, loading = true)
             s.categories.isEmpty() -> CenterMessage("No $label on this server")
             else -> {
-                val saved = Library.myList.filter { it.kind == s.kind }.map { it.item }
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     s.trending.forEachIndexed { i, (title, list) ->
                         if (list == null || list.isNotEmpty()) item("trend$i") {
                             PosterRow(title, list, setHero, onOpen)
                         }
-                    }
-                    if (saved.isNotEmpty()) item("mylist") {
-                        PosterRow("★  My List", saved, setHero, onOpen)
                     }
                     items(s.categories, key = { it.id }) { cat ->
                         LaunchedEffect(cat.id) {
