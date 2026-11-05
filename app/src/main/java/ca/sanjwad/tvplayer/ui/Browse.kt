@@ -641,7 +641,7 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
                 PosterRow("Movies", movies.map { it.item }, setHero,
                     onOpen = { item -> byId[item.id]?.let { onOpen(it.type, item, null) } })
             }
-            item { showRow("Caught up — waiting for new seasons", caughtUp) }
+            item { showRow("Caught up — waiting for new episodes", caughtUp) }
         }
     }
     menuFor?.let { p ->
