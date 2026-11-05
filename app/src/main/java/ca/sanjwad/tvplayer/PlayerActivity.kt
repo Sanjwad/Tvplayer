@@ -39,6 +39,20 @@ class PlayerActivity : ComponentActivity() {
     private var liveIndex = -1
     private var switchJob: Job? = null
 
+    // Some video servers only accept certain players. For movies/episodes, try these in turn
+    // when refused, and remember the one that worked.
+    private val agents = listOf(
+        StalkerClient.UA,
+        "Lavf/58.76.100",
+        "VLC/3.0.20 LibVLC/3.0.20",
+        "okhttp/4.12.0",
+        "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    )
+    @Volatile private var agentIndex = 0
+    private var firstAgent = 0
+    private var currentUrl: String? = null
+    private val prefs by lazy { getSharedPreferences("player", MODE_PRIVATE) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -55,29 +69,46 @@ class PlayerActivity : ComponentActivity() {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .addInterceptor { chain ->
-                val req = chain.request()
-                if (req.url.host == portalHost) {
-                    val b = req.newBuilder()
-                    portalHeaders.forEach { (k, v) -> b.header(k, v) }
-                    chain.proceed(b.build())
-                } else chain.proceed(req)
+                val b = chain.request().newBuilder().header("User-Agent", agents[agentIndex])
+                if (chain.request().url.host == portalHost) portalHeaders.forEach { (k, v) -> b.header(k, v) }
+                chain.proceed(b.build())
             }
             .build()
-        val http = OkHttpDataSource.Factory(okhttp).setUserAgent(StalkerClient.UA)
+        val http = OkHttpDataSource.Factory(okhttp)
 
         player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(http))
             .build()
         player.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY && liveIndex < 0 && agentIndex != prefs.getInt("vod_agent", 0)) {
+                    prefs.edit().putInt("vod_agent", agentIndex).apply()
+                    toast("Worked with player type ${agentIndex + 1}, remembered for next time")
+                }
+            }
+
             override fun onPlayerError(error: PlaybackException) {
                 var cause: Throwable? = error
                 var detail = error.errorCodeName
+                var code = 0
                 while (cause != null) {
                     if (cause is HttpDataSource.InvalidResponseCodeException) {
-                        detail = "server said ${cause.responseCode} for ${cause.dataSpec.uri.host}${cause.dataSpec.uri.path}"
+                        code = cause.responseCode
+                        detail = "server said $code for ${cause.dataSpec.uri.host}${cause.dataSpec.uri.path}"
                         break
                     }
                     cause = cause.cause
+                }
+                val url = currentUrl
+                if (liveIndex < 0 && url != null && code in 400..499) {
+                    val next = (agentIndex + 1) % agents.size
+                    if (next != firstAgent) {
+                        agentIndex = next
+                        toast("Server refused, trying another way (${tried() + 1}/${agents.size})…")
+                        play(url)
+                        return
+                    }
+                    detail += "\n(tried ${agents.size} player types)"
                 }
                 Toast.makeText(this@PlayerActivity, "Playback problem: $detail", Toast.LENGTH_LONG).show()
             }
@@ -95,6 +126,8 @@ class PlayerActivity : ComponentActivity() {
         when {
             url != null -> {
                 view.controllerAutoShow = true
+                firstAgent = prefs.getInt("vod_agent", 0).coerceIn(0, agents.size - 1)
+                agentIndex = firstAgent
                 play(url)
             }
             liveIndex >= 0 -> {
@@ -105,7 +138,10 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
+    private fun tried() = (agentIndex - firstAgent + agents.size) % agents.size
+
     private fun play(url: String) {
+        currentUrl = url
         player.setMediaItem(MediaItem.fromUri(url))
         player.prepare()
         player.playWhenReady = true
