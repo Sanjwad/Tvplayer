@@ -72,54 +72,71 @@ fun HomeScreen(
     val fr = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(150); runCatching { fr.requestFocus() } }
 
-    // Back: first jump to the menu; from the menu, press twice quickly to leave the app.
+    // Back: first jump to the menu; from the menu, ask before closing the app.
     val ctx = LocalContext.current
     var menuFocused by remember { mutableStateOf(false) }
-    var lastBack by remember { mutableStateOf(0L) }
-    BackHandler {
-        if (!menuFocused) runCatching { fr.requestFocus() }
-        else {
-            val now = System.currentTimeMillis()
-            if (now - lastBack < 2000) (ctx as? android.app.Activity)?.finish()
-            else {
-                lastBack = now
-                android.widget.Toast.makeText(ctx, "Press Back again to exit", android.widget.Toast.LENGTH_SHORT).show()
-            }
-        }
+    var askExit by remember { mutableStateOf(false) }
+    BackHandler(enabled = !askExit) {
+        if (!menuFocused) runCatching { fr.requestFocus() } else askExit = true
     }
 
-    Row(Modifier.fillMaxSize()) {
-        Column(
-            Modifier.width(210.dp).fillMaxHeight().background(Rail)
-                .padding(horizontal = 14.dp, vertical = 24.dp)
-                .onFocusChanged { menuFocused = it.hasFocus },
-        ) {
-            Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(start = 8.dp)) {
-                Text("sanj", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Accent)
-                Spacer(Modifier.width(4.dp))
-                Text("tv", fontSize = 30.sp, fontWeight = FontWeight.Light, color = Color.White)
+    Box(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxSize()) {
+            Column(
+                Modifier.width(210.dp).fillMaxHeight().background(Rail)
+                    .padding(horizontal = 14.dp, vertical = 24.dp)
+                    .onFocusChanged { menuFocused = it.hasFocus },
+            ) {
+                Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(start = 8.dp)) {
+                    Text("sanj", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Accent)
+                    Spacer(Modifier.width(4.dp))
+                    Text("tv", fontSize = 30.sp, fontWeight = FontWeight.Light, color = Color.White)
+                }
+                Spacer(Modifier.height(36.dp))
+                entries.forEach { (label, i) ->
+                    FocusBox(
+                        onClick = { if (i == 4) onSettings() else onSection(i) },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
+                            .then(if (i == section) Modifier.focusRequester(fr) else Modifier),
+                        selected = i == section,
+                        shape = RoundedCornerShape(8.dp),
+                    ) {
+                        Text(label, Modifier.padding(horizontal = 14.dp, vertical = 11.dp), fontSize = 17.sp,
+                            color = if (i == 3) GoldTint else Color.White)
+                    }
+                }
             }
-            Spacer(Modifier.height(36.dp))
-            entries.forEach { (label, i) ->
-                FocusBox(
-                    onClick = { if (i == 4) onSettings() else onSection(i) },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
-                        .then(if (i == section) Modifier.focusRequester(fr) else Modifier),
-                    selected = i == section,
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Text(label, Modifier.padding(horizontal = 14.dp, vertical = 11.dp), fontSize = 17.sp,
-                        color = if (i == 3) GoldTint else Color.White)
+            Box(Modifier.weight(1f).fillMaxHeight().padding(start = 20.dp, end = 20.dp, top = 16.dp)) {
+                when (section) {
+                    0 -> LiveScreen(live)
+                    1 -> VodTab(movies) { onOpen(movies.type, it, null) }
+                    2 -> VodTab(series) { onOpen(series.type, it, null) }
+                    5 -> GlobalSearch(movies.type, series.type, onOpen)
+                    else -> MyListScreen(onOpen)
                 }
             }
         }
-        Box(Modifier.weight(1f).fillMaxHeight().padding(start = 20.dp, end = 20.dp, top = 16.dp)) {
-            when (section) {
-                0 -> LiveScreen(live)
-                1 -> VodTab(movies) { onOpen(movies.type, it, null) }
-                2 -> VodTab(series) { onOpen(series.type, it, null) }
-                5 -> GlobalSearch(movies.type, series.type, onOpen)
-                else -> MyListScreen(onOpen)
+        if (askExit) ExitDialog(
+            onClose = { (ctx as? android.app.Activity)?.finish() },
+            onStay = { askExit = false; runCatching { fr.requestFocus() } },
+        )
+    }
+}
+
+@Composable
+private fun ExitDialog(onClose: () -> Unit, onStay: () -> Unit) {
+    val yes = remember { FocusRequester() }
+    BackHandler(onBack = onStay)
+    LaunchedEffect(Unit) { delay(100); runCatching { yes.requestFocus() } }
+    Box(Modifier.fillMaxSize().background(Color(0xCC000000)), contentAlignment = Alignment.Center) {
+        Column(Modifier.width(420.dp).clip(RoundedCornerShape(14.dp)).background(Panel).padding(28.dp)) {
+            Text("Close Sanj TV?", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Spacer(Modifier.height(6.dp))
+            Text("Press Back to stay.", fontSize = 14.sp, color = TextDim)
+            Spacer(Modifier.height(20.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TvButton("Yes, close", onClick = onClose, modifier = Modifier.focusRequester(yes))
+                TvButton("Stay", onClick = onStay)
             }
         }
     }
