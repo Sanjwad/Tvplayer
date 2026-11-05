@@ -57,6 +57,7 @@ fun FocusBox(
     modifier: Modifier = Modifier,
     selected: Boolean = false,
     shape: Shape = RoundedCornerShape(10.dp),
+    onFocus: (() -> Unit)? = null,
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -67,7 +68,10 @@ fun FocusBox(
     }
     Box(
         modifier
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged {
+                if (it.isFocused && !focused) onFocus?.invoke()
+                focused = it.isFocused
+            }
             .clip(shape)
             .background(bg)
             .border(2.dp, if (focused) Accent else Color.Transparent, shape)

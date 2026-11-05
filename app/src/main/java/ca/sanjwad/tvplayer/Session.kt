@@ -8,6 +8,8 @@ import ca.sanjwad.tvplayer.stalker.IptvSource
 object Session {
     @Volatile var client: IptvSource? = null
     @Volatile var channels: List<Channel> = emptyList()
+    /** Seasons per series id, so My List doesn't refetch them every visit. */
+    val seasonCache = java.util.concurrent.ConcurrentHashMap<String, List<ca.sanjwad.tvplayer.stalker.Season>>()
 }
 
 class Prefs(ctx: Context) {

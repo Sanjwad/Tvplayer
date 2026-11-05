@@ -6,6 +6,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import ca.sanjwad.tvplayer.stalker.Channel
+import ca.sanjwad.tvplayer.stalker.Episode
+import ca.sanjwad.tvplayer.stalker.Season
 import ca.sanjwad.tvplayer.stalker.VodItem
 import org.json.JSONArray
 import org.json.JSONObject
@@ -26,12 +28,48 @@ object Library {
     var myList by mutableStateOf<List<SavedItem>>(emptyList())
         private set
 
+    /** Series id → furthest (season, episode) started. */
+    var watched by mutableStateOf<Map<String, Pair<Int, Int>>>(emptyMap())
+        private set
+
     fun load(ctx: Context, accountKey: String) {
         val prefs = ctx.getSharedPreferences("library", Context.MODE_PRIVATE)
         sp = prefs
         key = accountKey.hashCode().toString()
         favourites = runCatching { parseChannels(prefs.getString("fav_$key", "[]")!!) }.getOrDefault(emptyList())
         myList = runCatching { parseSaved(prefs.getString("list_$key", "[]")!!) }.getOrDefault(emptyList())
+        watched = runCatching {
+            val o = JSONObject(prefs.getString("watch_$key", "{}")!!)
+            o.keys().asSequence().mapNotNull { k ->
+                val parts = o.optString(k).split(":")
+                val a = parts.getOrNull(0)?.toIntOrNull(); val b = parts.getOrNull(1)?.toIntOrNull()
+                if (a != null && b != null) k to (a to b) else null
+            }.toMap()
+        }.getOrDefault(emptyMap())
+    }
+
+    fun markWatched(seriesId: String, season: Int, episode: Int) {
+        val cur = watched[seriesId]
+        if (cur != null && (cur.first > season || (cur.first == season && cur.second >= episode))) return
+        watched = watched + (seriesId to (season to episode))
+        val o = JSONObject()
+        watched.forEach { (k, v) -> o.put(k, "${v.first}:${v.second}") }
+        sp?.edit()?.putString("watch_$key", o.toString())?.apply()
+    }
+
+    fun seasonNumber(s: Season, index: Int) = s.id.toIntOrNull() ?: Regex("\\d+").find(s.name)?.value?.toIntOrNull() ?: (index + 1)
+    fun episodeNumber(e: Episode, index: Int) = e.number.toIntOrNull() ?: (index + 1)
+
+    /** The first episode after the furthest one started, or the very first if none. Null = caught up. */
+    fun nextEpisode(seasons: List<Season>, last: Pair<Int, Int>?): Triple<Season, Episode, Pair<Int, Int>>? {
+        val ordered = seasons.mapIndexed { si, s -> seasonNumber(s, si) to s }.sortedBy { it.first }
+        for ((sn, s) in ordered) {
+            val eps = s.episodes.orEmpty().mapIndexed { ei, e -> episodeNumber(e, ei) to e }.sortedBy { it.first }
+            for ((en, e) in eps) {
+                if (last == null || sn > last.first || (sn == last.first && en > last.second)) return Triple(s, e, sn to en)
+            }
+        }
+        return null
     }
 
     fun isFavourite(id: String) = favourites.any { it.id == id }
@@ -69,7 +107,7 @@ object Library {
         .put("kind", s.kind).put("type", s.type)
         .put("id", s.item.id).put("name", s.item.name).put("description", s.item.description)
         .put("poster", s.item.poster ?: "").put("cmd", s.item.cmd).put("isSeries", s.item.isSeries)
-        .put("year", s.item.year).put("rating", s.item.rating)
+        .put("year", s.item.year).put("rating", s.item.rating).put("backdrop", s.item.backdrop ?: "")
 
     private fun parseSaved(s: String): List<SavedItem> {
         val a = JSONArray(s)
@@ -79,7 +117,7 @@ object Library {
                     it.optString("kind"), it.optString("type"),
                     VodItem(it.optString("id"), it.optString("name"), it.optString("description"),
                         it.optString("poster").ifBlank { null }, it.optString("cmd"), it.optBoolean("isSeries"),
-                        it.optString("year"), it.optString("rating")),
+                        it.optString("year"), it.optString("rating"), it.optString("backdrop").ifBlank { null }),
                 )
             }
         }

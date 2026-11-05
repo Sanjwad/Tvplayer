@@ -150,7 +150,14 @@ class XtreamClient(serverUrl: String, private val user: String, private val pass
                     val name = reader.nextName()
                     val tok = reader.peek()
                     if (name in fields && (tok == JsonToken.STRING || tok == JsonToken.NUMBER)) m[name] = reader.nextString()
-                    else reader.skipValue()
+                    else if (name in fields && tok == JsonToken.BEGIN_ARRAY) {
+                        // e.g. backdrop_path: ["http://…"] — keep the first string
+                        reader.beginArray()
+                        while (reader.hasNext()) {
+                            if (m[name] == null && reader.peek() == JsonToken.STRING) m[name] = reader.nextString() else reader.skipValue()
+                        }
+                        reader.endArray()
+                    } else reader.skipValue()
                 }
                 reader.endObject()
                 out += m
@@ -173,7 +180,7 @@ class XtreamClient(serverUrl: String, private val user: String, private val pass
             val cat: Array<Pair<String, String>> = if (all) emptyArray() else arrayOf("category_id" to categoryId)
             val list = if (type == "series") {
                 val fields = if (all) setOf("series_id", "name", "cover", "year", "releaseDate", "rating")
-                else setOf("series_id", "name", "cover", "plot", "year", "releaseDate", "rating")
+                else setOf("series_id", "name", "cover", "plot", "year", "releaseDate", "rating", "backdrop_path")
                 streamObjects("action" to "get_series", *cat, fields = fields).mapNotNull {
                     val id = it.s("series_id").ifEmpty { return@mapNotNull null }
                     VodItem(
@@ -181,6 +188,7 @@ class XtreamClient(serverUrl: String, private val user: String, private val pass
                         poster = it.im("cover"), cmd = "", isSeries = true,
                         year = it.s("year").ifEmpty { it.s("releaseDate").take(4) },
                         rating = it.s("rating").takeIf { r -> r != "0" }.orEmpty(),
+                        backdrop = it.im("backdrop_path"),
                     )
                 }
             } else {
@@ -224,7 +232,14 @@ class XtreamClient(serverUrl: String, private val user: String, private val pass
             year = item.year.ifBlank { info.str("releasedate").take(4) },
             rating = item.rating.ifBlank { info.str("rating").takeIf { it != "0" }.orEmpty() },
             poster = item.poster ?: info.img("movie_image"),
+            backdrop = item.backdrop ?: firstImage(info.opt("backdrop_path")),
         )
+    }
+
+    private fun firstImage(v: Any?): String? = when (v) {
+        is String -> v.takeIf { it.startsWith("http", true) }
+        is JSONArray -> (0 until v.length()).map { v.optString(it) }.firstOrNull { it.startsWith("http", true) }
+        else -> null
     }
 
     override fun seasons(type: String, item: VodItem): List<Season> {

@@ -24,7 +24,19 @@ jobs:
           gradle-version: "8.9"
 
       - name: Build
-        run: gradle :app:assembleRelease --no-daemon --stacktrace
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle :app:assembleRelease --no-daemon 2>&1 | tee build.log
+
+      - name: Publish build log on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          grep -E "^e: |error:|FAILURE|What went wrong" -A3 build.log > errors.txt || true
+          gh release delete buildlog --yes --cleanup-tag || true
+          gh release create buildlog build.log errors.txt --title "Last failed build log" --notes "Run ${{ github.run_number }}" --prerelease --target "${{ github.sha }}"
 
       - name: Publish as "latest" release
         env:

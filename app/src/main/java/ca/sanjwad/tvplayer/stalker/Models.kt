@@ -20,6 +20,7 @@ data class VodItem(
     val isSeries: Boolean,
     val year: String,
     val rating: String,
+    val backdrop: String? = null,
 )
 
 data class Season(val id: String, val name: String, val episodes: List<Episode>?)
