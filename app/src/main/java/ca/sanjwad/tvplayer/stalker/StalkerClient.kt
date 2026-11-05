@@ -359,6 +359,8 @@ class StalkerClient(
 
     fun createLink(type: String, cmd: String, series: String = "", movieId: String? = null): String {
         val log = mutableListOf<String>()
+        // Movies/episodes whose cmd is already a real address need no create_link round trip.
+        if (type == "vod") directUrl(cmd)?.let { return it }
         val isMovieRef = type == "vod" && movieId != null && !cmd.contains("file_") && series.isBlank()
 
         if (isMovieRef) {
@@ -367,6 +369,7 @@ class StalkerClient(
                 .getOrDefault(emptyList())
                 .filter { it != cmd }
             if (files.isEmpty()) log += "• file list: (none)"
+            files.firstNotNullOfOrNull { directUrl(it) }?.let { return it }
             for (f in files.take(3)) requestLink(type, f, "", log)?.let { return it }
         }
 
@@ -376,6 +379,9 @@ class StalkerClient(
             "The portal didn't return a stream for this.\nItem cmd: ${cmd.take(100)}\n" + log.joinToString("\n")
         )
     }
+
+    private fun directUrl(cmd: String): String? =
+        streamUrl(cmd)?.takeIf { !it.contains("localhost") && !it.contains("127.0.0.1") }
 
     /** Pulls a full http address out of a portal cmd such as "ffmpeg http://…". */
     private fun streamUrl(raw: String): String? {
