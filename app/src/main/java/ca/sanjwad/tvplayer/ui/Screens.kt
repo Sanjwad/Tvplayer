@@ -1,0 +1,517 @@
+package ca.sanjwad.tvplayer.ui
+
+import android.content.Intent
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import ca.sanjwad.tvplayer.PlayerActivity
+import ca.sanjwad.tvplayer.Prefs
+import ca.sanjwad.tvplayer.Session
+import ca.sanjwad.tvplayer.stalker.Channel
+import ca.sanjwad.tvplayer.stalker.Episode
+import ca.sanjwad.tvplayer.stalker.Genre
+import ca.sanjwad.tvplayer.stalker.Season
+import ca.sanjwad.tvplayer.stalker.StalkerClient
+import ca.sanjwad.tvplayer.stalker.VodItem
+import coil.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+// ---------------- state kept while moving between screens ----------------
+
+class LiveState {
+    var genres by mutableStateOf<List<Genre>>(emptyList())
+    var all by mutableStateOf<List<Channel>>(emptyList())
+    var genre by mutableStateOf("*")
+    var loading by mutableStateOf(false)
+    var error by mutableStateOf<String?>(null)
+    var loaded = false
+    fun reset() { genres = emptyList(); all = emptyList(); genre = "*"; error = null; loaded = false }
+}
+
+class VodState(val type: String) {
+    var categories by mutableStateOf<List<Genre>>(emptyList())
+    var category by mutableStateOf<String?>(null)
+    var items by mutableStateOf<List<VodItem>>(emptyList())
+    var page by mutableIntStateOf(0)
+    var total by mutableIntStateOf(0)
+    var loading by mutableStateOf(false)
+    var error by mutableStateOf<String?>(null)
+    var catsLoaded = false
+    var job: Job? = null
+    fun reset() {
+        categories = emptyList(); category = null; items = emptyList(); page = 0; total = 0
+        error = null; catsLoaded = false; job?.cancel(); job = null; loading = false
+    }
+}
+
+private suspend fun focusSoon(fr: FocusRequester) {
+    delay(150)
+    runCatching { fr.requestFocus() }
+}
+
+// ---------------- app shell ----------------
+
+@Composable
+fun App() {
+    val ctx = LocalContext.current
+    val prefs = remember { Prefs(ctx) }
+    var screen by remember { mutableStateOf(if (prefs.portal.isBlank()) "setup" else "connect") }
+    var detail by remember { mutableStateOf<Pair<String, VodItem>?>(null) }
+    var tab by remember { mutableIntStateOf(0) }
+    val live = remember { LiveState() }
+    val movies = remember { VodState("vod") }
+    val series = remember { VodState("series") }
+
+    Box(Modifier.fillMaxSize().background(Bg)) {
+        val d = detail
+        when {
+            screen == "setup" -> SetupScreen(prefs, hasSaved = prefs.portal.isNotBlank(),
+                onCancel = { screen = if (Session.client != null) "home" else "connect" }) {
+                live.reset(); movies.reset(); series.reset(); Session.client = null
+                screen = "connect"
+            }
+            screen == "connect" -> ConnectScreen(prefs, onDone = { screen = "home" }, onEdit = { screen = "setup" })
+            d != null -> DetailScreen(d.first, d.second) { detail = null }
+            else -> HomeScreen(
+                tab = tab, onTab = { tab = it }, live = live, movies = movies, series = series,
+                onOpen = { type, item -> detail = type to item },
+                onSettings = { screen = "setup" },
+            )
+        }
+    }
+}
+
+// ---------------- setup & connect ----------------
+
+@Composable
+fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: () -> Unit) {
+    var portal by remember { mutableStateOf(prefs.portal) }
+    var mac by remember { mutableStateOf(prefs.mac.ifBlank { "00:1A:79:" }) }
+    var err by remember { mutableStateOf<String?>(null) }
+    if (hasSaved) BackHandler(onBack = onCancel)
+
+    Column(
+        Modifier.fillMaxSize().padding(48.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("TV Player", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Accent)
+        Spacer(Modifier.height(8.dp))
+        Text("Enter the portal details from your provider", fontSize = 18.sp, color = TextDim)
+        Spacer(Modifier.height(28.dp))
+        OutlinedTextField(
+            value = portal, onValueChange = { portal = it },
+            label = { Text("Portal URL (e.g. http://example.com:8080/c/)") },
+            singleLine = true, modifier = Modifier.width(560.dp),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+        )
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = mac, onValueChange = { mac = it.uppercase() },
+            label = { Text("MAC address") },
+            singleLine = true, modifier = Modifier.width(560.dp),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+        )
+        err?.let {
+            Spacer(Modifier.height(12.dp))
+            Text(it, color = ErrorRed, fontSize = 16.sp)
+        }
+        Spacer(Modifier.height(24.dp))
+        TvButton("Save and connect", onClick = {
+            val m = mac.trim()
+            when {
+                portal.isBlank() -> err = "Enter the portal URL."
+                !Regex("([0-9A-F]{2}:){5}[0-9A-F]{2}").matches(m) -> err = "MAC should look like 00:1A:79:12:34:56"
+                else -> { prefs.portal = portal.trim(); prefs.mac = m; onSaved() }
+            }
+        })
+    }
+}
+
+@Composable
+fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
+    var error by remember { mutableStateOf<String?>(null) }
+    var attempt by remember { mutableIntStateOf(0) }
+    val fr = remember { FocusRequester() }
+
+    LaunchedEffect(attempt) {
+        error = null
+        val r = withContext(Dispatchers.IO) {
+            runCatching { StalkerClient(prefs.portal, prefs.mac).also { it.connect() } }
+        }
+        r.onSuccess { Session.client = it; onDone() }
+            .onFailure { error = it.message ?: "Couldn't connect." }
+    }
+    LaunchedEffect(error) { if (error != null) focusSoon(fr) }
+
+    val e = error
+    if (e == null) {
+        CenterMessage("Connecting to your provider…", loading = true)
+    } else {
+        Column(
+            Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text("Couldn't connect", fontSize = 26.sp, color = Color.White, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            Text(e, fontSize = 17.sp, color = TextDim)
+            Spacer(Modifier.height(24.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TvButton("Try again", onClick = { attempt++ }, modifier = Modifier.focusRequester(fr))
+                TvButton("Edit details", onClick = onEdit)
+            }
+        }
+    }
+}
+
+// ---------------- home ----------------
+
+@Composable
+fun HomeScreen(
+    tab: Int, onTab: (Int) -> Unit,
+    live: LiveState, movies: VodState, series: VodState,
+    onOpen: (String, VodItem) -> Unit, onSettings: () -> Unit,
+) {
+    val tabs = listOf("Live TV", "Movies", "Series", "Settings")
+    val fr = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusSoon(fr) }
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("TV Player", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Accent)
+            Spacer(Modifier.width(28.dp))
+            tabs.forEachIndexed { i, t ->
+                FocusBox(
+                    onClick = { if (i == 3) onSettings() else onTab(i) },
+                    modifier = Modifier.padding(end = 8.dp)
+                        .then(if (i == tab) Modifier.focusRequester(fr) else Modifier),
+                    selected = i == tab,
+                    shape = RoundedCornerShape(20.dp),
+                ) {
+                    Text(t, Modifier.padding(horizontal = 20.dp, vertical = 8.dp), fontSize = 18.sp, color = Color.White)
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        when (tab) {
+            0 -> LiveScreen(live)
+            1 -> VodScreen(movies) { onOpen("vod", it) }
+            else -> VodScreen(series) { onOpen("series", it) }
+        }
+    }
+}
+
+// ---------------- live TV ----------------
+
+@Composable
+fun LiveScreen(s: LiveState) {
+    val ctx = LocalContext.current
+    LaunchedEffect(Unit) {
+        if (!s.loaded && !s.loading) {
+            s.loading = true; s.error = null
+            val r = withContext(Dispatchers.IO) {
+                runCatching {
+                    val c = Session.client ?: error("Not connected")
+                    c.liveGenres() to c.liveChannels()
+                }
+            }
+            r.onSuccess { (g, ch) ->
+                s.genres = listOf(Genre("*", "All channels")) + g.filter { it.id != "*" }
+                s.all = ch; s.loaded = true
+            }.onFailure { s.error = it.message }
+            s.loading = false
+        }
+    }
+
+    val err = s.error
+    when {
+        s.loading -> CenterMessage("Loading channels…", loading = true)
+        err != null -> CenterMessage("Couldn't load channels", err)
+        else -> {
+            val shown = remember(s.genre, s.all) {
+                if (s.genre == "*") s.all else s.all.filter { it.genreId == s.genre }
+            }
+            Row(Modifier.fillMaxSize()) {
+                LazyColumn(Modifier.width(280.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    items(s.genres) { g ->
+                        FocusBox(onClick = { s.genre = g.id }, modifier = Modifier.fillMaxWidth(), selected = g.id == s.genre) {
+                            Text(g.title, Modifier.padding(12.dp), fontSize = 17.sp, color = Color.White,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+                Spacer(Modifier.width(16.dp))
+                LazyColumn(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (shown.isEmpty()) item { Text("No channels in this group", color = TextDim, fontSize = 17.sp) }
+                    itemsIndexed(shown) { index, c ->
+                        FocusBox(onClick = {
+                            Session.channels = shown
+                            ctx.startActivity(Intent(ctx, PlayerActivity::class.java).putExtra("live_index", index))
+                        }, modifier = Modifier.fillMaxWidth()) {
+                            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(if (c.number > 0) c.number.toString() else "", Modifier.width(56.dp), color = TextDim, fontSize = 16.sp)
+                                AsyncImage(model = c.logo, contentDescription = null,
+                                    modifier = Modifier.size(width = 56.dp, height = 34.dp), contentScale = ContentScale.Fit)
+                                Spacer(Modifier.width(14.dp))
+                                Text(c.name, fontSize = 18.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------- movies & series ----------------
+
+@Composable
+fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
+    val scope = rememberCoroutineScope()
+
+    fun loadPage(reset: Boolean) {
+        val cat = s.category ?: return
+        if (!reset && (s.loading || (s.total > 0 && s.items.size >= s.total))) return
+        s.job?.cancel()
+        val p = if (reset) 1 else s.page + 1
+        if (reset) { s.items = emptyList(); s.total = 0 }
+        s.loading = true; s.error = null
+        s.job = scope.launch {
+            val r = withContext(Dispatchers.IO) {
+                runCatching { (Session.client ?: error("Not connected")).vodPage(s.type, cat, p) }
+            }
+            if (!isActive) return@launch
+            if (s.category == cat) {
+                r.onSuccess { pg ->
+                    s.items = if (reset) pg.items else s.items + pg.items
+                    s.page = p; s.total = if (pg.items.isEmpty()) s.items.size else pg.totalItems
+                }.onFailure { s.error = it.message }
+            }
+            s.loading = false
+        }
+    }
+
+    LaunchedEffect(s.type) {
+        if (!s.catsLoaded) {
+            val r = withContext(Dispatchers.IO) {
+                runCatching { (Session.client ?: error("Not connected")).vodCategories(s.type) }
+            }
+            r.onSuccess {
+                s.categories = it; s.catsLoaded = true
+                if (s.category == null && it.isNotEmpty()) { s.category = it.first().id; loadPage(true) }
+            }.onFailure { s.error = it.message }
+        }
+    }
+
+    val label = if (s.type == "series") "series" else "movies"
+    Row(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.width(260.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            items(s.categories) { g ->
+                FocusBox(onClick = { if (s.category != g.id) { s.category = g.id; loadPage(true) } },
+                    modifier = Modifier.fillMaxWidth(), selected = g.id == s.category) {
+                    Text(g.title, Modifier.padding(12.dp), fontSize = 17.sp, color = Color.White,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+        Spacer(Modifier.width(16.dp))
+        Box(Modifier.weight(1f).fillMaxHeight()) {
+            val err = s.error
+            when {
+                err != null && s.items.isEmpty() -> CenterMessage("Couldn't load $label", err)
+                s.catsLoaded && s.categories.isEmpty() -> CenterMessage("No $label section on this portal",
+                    if (s.type == "series") "Series may be listed under Movies." else null)
+                s.items.isEmpty() && (s.loading || !s.catsLoaded) -> CenterMessage("Loading $label…", loading = true)
+                s.items.isEmpty() -> CenterMessage("Nothing in this category")
+                else -> LazyVerticalGrid(
+                    columns = GridCells.Adaptive(150.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    itemsIndexed(s.items) { index, item ->
+                        if (index >= s.items.size - 8) LaunchedEffect(index) { loadPage(false) }
+                        PosterCard(item) { onOpen(item) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PosterCard(item: VodItem, onClick: () -> Unit) {
+    FocusBox(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(6.dp)) {
+            Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(6.dp)).background(Bg)) {
+                Text(item.name, Modifier.align(Alignment.Center).padding(8.dp), color = TextDim, fontSize = 14.sp, maxLines = 4)
+                AsyncImage(model = item.poster, contentDescription = item.name,
+                    modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(item.name, fontSize = 14.sp, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+// ---------------- details ----------------
+
+@Composable
+fun DetailScreen(type: String, item: VodItem, onBack: () -> Unit) {
+    BackHandler(onBack = onBack)
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var seasons by remember { mutableStateOf<List<Season>?>(null) }
+    var seasonIdx by remember { mutableIntStateOf(0) }
+    var episodes by remember { mutableStateOf<List<Episode>?>(null) }
+    var msg by remember { mutableStateOf<String?>(null) }
+    val fr = remember { FocusRequester() }
+
+    fun play(cmd: String, series: String, title: String) {
+        msg = "Starting…"
+        scope.launch {
+            val r = withContext(Dispatchers.IO) {
+                runCatching { (Session.client ?: error("Not connected")).createLink("vod", cmd, series) }
+            }
+            r.onSuccess {
+                msg = null
+                ctx.startActivity(Intent(ctx, PlayerActivity::class.java).putExtra("url", it).putExtra("title", title))
+            }.onFailure { msg = it.message ?: "Couldn't start playback." }
+        }
+    }
+
+    LaunchedEffect(item.id) {
+        if (item.isSeries) {
+            val r = withContext(Dispatchers.IO) {
+                runCatching { (Session.client ?: error("Not connected")).seasons(type, item) }
+            }
+            r.onSuccess { seasons = it; if (it.isEmpty()) msg = "No seasons found for this show." }
+                .onFailure { msg = it.message; seasons = emptyList() }
+        }
+        focusSoon(fr)
+    }
+
+    LaunchedEffect(seasons, seasonIdx) {
+        val s = seasons?.getOrNull(seasonIdx) ?: return@LaunchedEffect
+        episodes = null
+        val pre = s.episodes
+        if (pre != null) { episodes = pre; return@LaunchedEffect }
+        val r = withContext(Dispatchers.IO) {
+            runCatching { (Session.client ?: error("Not connected")).episodes(type, item, s) }
+        }
+        r.onSuccess { episodes = it }.onFailure { msg = it.message; episodes = emptyList() }
+    }
+
+    Row(Modifier.fillMaxSize().padding(40.dp)) {
+        Box(Modifier.width(260.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp)).background(Panel)) {
+            AsyncImage(model = item.poster, contentDescription = item.name,
+                modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        }
+        Spacer(Modifier.width(32.dp))
+        Column(Modifier.weight(1f)) {
+            Text(item.name, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
+            val meta = listOfNotNull(item.year.ifBlank { null }, item.rating.ifBlank { null }?.let { "★ $it" })
+            if (meta.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Text(meta.joinToString("  ·  "), fontSize = 17.sp, color = TextDim)
+            }
+            if (item.description.isNotBlank()) {
+                Spacer(Modifier.height(12.dp))
+                Text(item.description, fontSize = 17.sp, color = Color(0xFFD5DAE1), maxLines = 6, overflow = TextOverflow.Ellipsis)
+            }
+            msg?.let {
+                Spacer(Modifier.height(12.dp))
+                Text(it, fontSize = 16.sp, color = if (it == "Starting…") Accent else ErrorRed)
+            }
+            Spacer(Modifier.height(20.dp))
+
+            if (!item.isSeries) {
+                TvButton("▶  Play", onClick = { play(item.cmd, "", item.name) }, modifier = Modifier.focusRequester(fr))
+            } else {
+                val ss = seasons
+                if (ss == null) {
+                    Text("Loading seasons…", color = TextDim, fontSize = 17.sp)
+                    Box(Modifier.size(1.dp).focusRequester(fr))
+                } else {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        itemsIndexed(ss) { i, s ->
+                            FocusBox(onClick = { seasonIdx = i }, selected = i == seasonIdx,
+                                shape = RoundedCornerShape(20.dp),
+                                modifier = if (i == 0) Modifier.focusRequester(fr) else Modifier) {
+                                Text(s.name.ifBlank { "Season ${i + 1}" },
+                                    Modifier.padding(horizontal = 18.dp, vertical = 8.dp), fontSize = 16.sp, color = Color.White)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    val eps = episodes
+                    when {
+                        eps == null -> Text("Loading episodes…", color = TextDim, fontSize = 17.sp)
+                        eps.isEmpty() -> Text("No episodes found.", color = TextDim, fontSize = 17.sp)
+                        else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            items(eps) { ep ->
+                                FocusBox(onClick = { play(ep.cmd, ep.seriesParam, "${item.name} ${ep.title}") },
+                                    modifier = Modifier.fillMaxWidth()) {
+                                    Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                                        Text(if (ep.number.isNotBlank()) "E${ep.number}" else "",
+                                            Modifier.width(56.dp), color = TextDim, fontSize = 17.sp)
+                                        Text(ep.title, color = Color.White, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
