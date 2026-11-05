@@ -6,7 +6,7 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
     <application
-        android:label="TV Player"
+        android:label="Sanj TV"
         android:icon="@drawable/ic_launcher"
         android:banner="@drawable/banner"
         android:usesCleartextTraffic="true"

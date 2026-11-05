@@ -1,4 +1,4 @@
-# TV Player
+# Sanj TV
 
 A personal Android TV player for Stalker (MAC-based) IPTV portals. Works on
 NVIDIA Shield, Fire TV Stick and Onn (Google TV) devices.

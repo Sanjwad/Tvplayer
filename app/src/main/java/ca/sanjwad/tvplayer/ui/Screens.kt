@@ -151,7 +151,7 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("TV Player", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Accent)
+        Text("Sanj TV", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Accent)
         Spacer(Modifier.height(8.dp))
         Text("Enter the portal details from your provider", fontSize = 18.sp, color = TextDim)
         Spacer(Modifier.height(28.dp))
@@ -259,7 +259,7 @@ fun HomeScreen(
 
     Column(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("TV Player", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Accent)
+            Text("Sanj TV", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Accent)
             Spacer(Modifier.width(28.dp))
             tabs.forEachIndexed { i, t ->
                 FocusBox(
