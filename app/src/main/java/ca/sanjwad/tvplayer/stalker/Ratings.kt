@@ -22,6 +22,21 @@ class OmdbClient(private val key: String) {
         return lookup(q, year.take(4), isSeries) ?: if (year.isNotBlank()) lookup(q, "", isSeries) else null
     }
 
+    /** Exact lookup by IMDb id. */
+    fun byId(imdbId: String): String? {
+        val url = "https://www.omdbapi.com/".toHttpUrl().newBuilder()
+            .addQueryParameter("apikey", key).addQueryParameter("i", imdbId).build()
+        http.newCall(Request.Builder().url(url).build()).execute().use { r ->
+            val o = JSONObject(r.body?.string().orEmpty().ifBlank { "{}" })
+            if (o.optString("Response") == "False") {
+                val err = o.optString("Error")
+                if (err.contains("limit", true) || err.contains("key", true)) throw IOException(err)
+                return null
+            }
+            return o.optString("imdbRating").takeIf { it.isNotBlank() && it != "N/A" }
+        }
+    }
+
     private fun lookup(q: String, year: String, isSeries: Boolean): String? {
         val url = "https://www.omdbapi.com/".toHttpUrl().newBuilder()
             .addQueryParameter("apikey", key).addQueryParameter("t", q)
@@ -94,7 +109,7 @@ object Ratings {
     }
 
     fun peekTmdb(item: VodItem): String? = cached(key("t", item))
-    fun peekImdb(item: VodItem): String? = cached(key("i", item))
+    fun peekImdb(item: VodItem): String? = cached(key("i2", item))
 
     /** TMDB score like "7.3", or "" if none. Blocking; call off the main thread. */
     fun tmdb(item: VodItem, client: TmdbClient): String {
@@ -110,14 +125,23 @@ object Ratings {
         } finally { tmdbGate.release() }
     }
 
-    /** IMDb rating like "7.8", or "" if none. Returns null (not cached) when the lookup itself failed. */
-    fun imdb(item: VodItem, client: OmdbClient): String? {
-        val k = key("i", item)
+    /**
+     * IMDb rating like "7.8", or "" if none. Matches the exact title through TMDB's IMDb id when
+     * possible, so films sharing a name don't get mixed up. Returns null (not cached) if the lookup failed.
+     */
+    fun imdb(item: VodItem, client: OmdbClient, tmdb: TmdbClient?): String? {
+        val k = key("i2", item)
         cached(k)?.let { return it }
         omdbGate.acquire()
         try {
             cached(k)?.let { return it }
-            val v = runCatching { client.imdbRating(item.name, item.year, item.isSeries) }.getOrElse { return null }.orEmpty()
+            val v = runCatching {
+                if (tmdb != null) {
+                    val idKey = key("id", item)
+                    val id = cached(idKey) ?: (tmdb.imdbId(item.name, item.year, item.isSeries).orEmpty().also { put(idKey, it) })
+                    if (id.isNotEmpty()) client.byId(id) else null
+                } else client.imdbRating(item.name, item.year, item.isSeries)
+            }.getOrElse { return null }.orEmpty()
             put(k, v)
             return v
         } finally { omdbGate.release() }

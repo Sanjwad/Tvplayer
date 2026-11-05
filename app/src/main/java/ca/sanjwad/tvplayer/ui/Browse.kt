@@ -166,7 +166,7 @@ fun RatingPills(item: VodItem) {
         if (value == null) {
             val o = Session.omdb ?: return@produceState
             delay(300) // only look up titles that stay on screen
-            value = withContext(Dispatchers.IO) { runCatching { Ratings.imdb(item, o) }.getOrNull() }
+            value = withContext(Dispatchers.IO) { runCatching { Ratings.imdb(item, o, Session.tmdb) }.getOrNull() }
         }
     }
     val provider = Ratings.providerScore(item)

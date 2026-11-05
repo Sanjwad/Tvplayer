@@ -102,6 +102,18 @@ class TmdbClient(private val key: String) {
         return map
     }
 
+    /** The exact IMDb id ("tt1234567") of the best TMDB match for a title, or null. */
+    fun imdbId(title: String, year: String, isSeries: Boolean): String? {
+        val q = TitleMatch.queryName(title)
+        if (q.isBlank()) return null
+        val y = year.take(4)
+        val res = if (isSeries) get("search/tv", "query" to q, *(if (y.isNotEmpty()) arrayOf("first_air_date_year" to y) else emptyArray()))
+        else get("search/movie", "query" to q, *(if (y.isNotEmpty()) arrayOf("year" to y) else emptyArray()))
+        val id = res.optJSONArray("results")?.optJSONObject(0)?.optInt("id", 0)?.takeIf { it > 0 } ?: return null
+        val ext = if (isSeries) get("tv/$id/external_ids") else get("movie/$id")
+        return ext.optString("imdb_id").takeIf { it.startsWith("tt") }
+    }
+
     /** TMDB's average score for the best match of a title, or null. */
     fun score(title: String, year: String, isSeries: Boolean): Double? {
         val q = TitleMatch.queryName(title)
