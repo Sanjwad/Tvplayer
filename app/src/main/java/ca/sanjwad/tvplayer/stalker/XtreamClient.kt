@@ -195,7 +195,8 @@ class XtreamClient(
     }
 
     private fun listings(action: String, channel: Channel, now: Long): List<Programme> {
-        val reply = api("action" to action, "stream_id" to channel.id, "limit" to "4")
+        val reply = if (action == "get_short_epg") api("action" to action, "stream_id" to channel.id, "limit" to "4")
+        else api("action" to action, "stream_id" to channel.id)
         lastGuideReply = "$action for ${channel.name}: " + reply.toString().take(300)
         val rows = when (reply) {
             is JSONObject -> reply.optJSONArray("epg_listings").objects()
@@ -205,7 +206,7 @@ class XtreamClient(
             val start = timeOf(it, "start_timestamp", "start") ?: return@mapNotNull null
             val end = timeOf(it, "stop_timestamp", "end_timestamp", "stop", "end") ?: return@mapNotNull null
             Programme(b64(it.str("title")), b64(it.str("description")), start, end)
-        }.filter { it.end > now }.sortedBy { it.start }.take(3)
+        }.filter { it.end > now }.sortedBy { it.start }.take(4)
     }
 
     override fun nowNext(channel: Channel): List<Programme> {
@@ -217,7 +218,12 @@ class XtreamClient(
         epgGate.acquire()
         try {
             var list = runCatching { listings("get_short_epg", channel, now) }.getOrDefault(emptyList())
-            if (list.isEmpty()) list = runCatching { listings("get_simple_data_table", channel, now) }.getOrDefault(emptyList())
+            // The quick guide often only has what's on now; the full table also has what's next.
+            if (list.size < 2) {
+                val table = runCatching { listings("get_simple_data_table", channel, now) }.getOrDefault(emptyList())
+                list = (list + table).distinctBy { it.start }.sortedBy { it.start }.take(3)
+            }
+            list = list.filterNot { it.title.isBlank() || it.title.equals("No information available", true) }
             epgCache[channel.id] = now to list
             return list
         } catch (e: Exception) {
