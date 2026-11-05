@@ -297,10 +297,12 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
     LaunchedEffect(saved.map { it.item.id }) {
         for (sv in saved.filter { it.item.isSeries }) {
             val id = sv.item.id
-            Session.seasonCache[id]?.let { seasonsById[id] = it; continue }
+            val cached = Session.seasonCache[id]
+            if (cached != null) { seasonsById[id] = cached; continue }
             val list = withContext(Dispatchers.IO) {
                 runCatching { Session.client?.seasons(sv.type, sv.item) }.getOrNull()
-            } ?: continue
+            }
+            if (list == null) continue
             Session.seasonCache[id] = list
             seasonsById[id] = list
         }
