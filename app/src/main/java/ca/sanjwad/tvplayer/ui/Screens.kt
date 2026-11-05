@@ -155,6 +155,7 @@ fun App() {
                     onSettings = { screen = "setup" },
                 )
             }
+            UpdatePrompt()
         }
     }
 }

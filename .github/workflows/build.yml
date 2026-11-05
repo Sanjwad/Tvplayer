@@ -43,8 +43,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp app/build/outputs/apk/release/app-release.apk tvplayer.apk
+          echo '{"versionCode": ${{ github.run_number }}, "versionName": "0.1.${{ github.run_number }}"}' > version.json
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest tvplayer.apk \
+          gh release create latest tvplayer.apk version.json \
             --title "Sanj TV build ${{ github.run_number }}" \
             --notes "Version 0.1.${{ github.run_number }}" \
             --target "${{ github.sha }}" --latest
