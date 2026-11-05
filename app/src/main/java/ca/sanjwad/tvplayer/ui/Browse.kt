@@ -331,7 +331,7 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
             r.exceptionOrNull()?.let {
                 s.error = if (it is java.io.InterruptedIOException) "Your provider took too long to reply." else it.message
             }
-            r.getOrNull()?.let { (type, cats) -> s.type = type; s.categories = cats; s.catsLoaded = true }
+            r.getOrNull()?.let { (type, cats) -> Library.noteCategories(s.kind, cats); s.type = type; s.categories = cats; s.catsLoaded = true }
         }
     }
     // Count seconds while waiting, so a slow provider is obvious rather than looking frozen.

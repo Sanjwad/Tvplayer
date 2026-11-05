@@ -188,7 +188,7 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
             cats = withContext(Dispatchers.IO) {
                 runCatching {
                     val c = Session.client ?: error("Not connected")
-                    if (m == "live") c.liveGenres() else c.browseCategories(m).second
+                    (if (m == "live") c.liveGenres() else c.browseCategories(m).second).also { Library.noteCategories(m, it) }
                 }.getOrDefault(emptyList())
             }
         }
@@ -380,6 +380,29 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
     val fr = remember { FocusRequester() }
+    var importOffer by remember { mutableStateOf<Library.OldAccount?>(null) }
+    var importing by remember { mutableStateOf(false) }
+    val importChoice = remember { kotlinx.coroutines.CompletableDeferred<Boolean>() }
+
+    importOffer?.let { old ->
+        if (importing) { CenterMessage("Bringing over your lists…", "Matching titles and channels on the new server.", loading = true); return }
+        val yes = remember { FocusRequester() }
+        LaunchedEffect(Unit) { focusSoon(yes) }
+        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Text("New login", fontSize = 26.sp, color = Color.White, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            Text("Bring over your My List, favourite channels, watched episodes and hidden categories from your previous login?",
+                fontSize = 16.sp, color = TextDim, modifier = Modifier.width(620.dp))
+            Spacer(Modifier.height(4.dp))
+            Text("Previous login: ${old.label.substringBefore("|")}", fontSize = 13.sp, color = TextDim, modifier = Modifier.width(620.dp))
+            Spacer(Modifier.height(22.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TvButton("Yes, bring them over", onClick = { importChoice.complete(true) }, modifier = Modifier.focusRequester(yes))
+                TvButton("No, start fresh", onClick = { importChoice.complete(false) })
+            }
+        }
+        return
+    }
 
     LaunchedEffect(attempt) {
         error = null
@@ -400,6 +423,18 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
                 .takeIf { it.isNotBlank() }?.let { ca.sanjwad.tvplayer.stalker.OmdbClient(it) }
             ca.sanjwad.tvplayer.stalker.Ratings.init(ctx.filesDir)
             Session.client = c
+            // A new login: offer to bring My List and favourites over from the previous one.
+            Library.previousAccount()?.let { old ->
+                importOffer = old
+                val yes = importChoice.await()
+                if (yes) {
+                    importing = true
+                    val summary = withContext(Dispatchers.IO) { runCatching { Library.importFrom(old, c) }.getOrDefault("") }
+                    Library.load(ctx, "${prefs.xtServer}|${prefs.xtUser}")
+                    if (summary.isNotBlank()) android.widget.Toast.makeText(ctx, summary, android.widget.Toast.LENGTH_LONG).show()
+                } else Library.markAsked()
+                importOffer = null; importing = false
+            }
             // Reopen on the last live channel, like TiVimate.
             val lastId = Library.lastChannelId
             if (prefs.startOnLastChannel && lastId.isNotEmpty()) {
@@ -524,6 +559,7 @@ fun LiveScreen(s: LiveState) {
                 }
             }
             r.onSuccess { (g, ch) ->
+                Library.noteCategories("live", g)
                 s.genres = listOf(Genre("*", "All channels")) + g.filter { it.id != "*" }
                 s.all = ch; s.loaded = true
             }.onFailure { s.error = it.message }

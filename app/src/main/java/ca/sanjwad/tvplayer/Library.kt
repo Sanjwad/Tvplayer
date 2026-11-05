@@ -70,6 +70,94 @@ object Library {
         get() = sp?.getString("last_channel_$key", "").orEmpty()
         set(v) { sp?.edit()?.putString("last_channel_$key", v)?.apply() }
 
+    // ---------- category names (so hidden categories can move to a new login) ----------
+
+    fun noteCategories(section: String, cats: List<ca.sanjwad.tvplayer.stalker.Genre>) {
+        val prefs = sp ?: return
+        runCatching {
+            val o = JSONObject(prefs.getString("catnames_$key", "{}")!!)
+            cats.forEach { o.put("$section|${it.id}", it.title) }
+            prefs.edit().putString("catnames_$key", o.toString()).apply()
+        }
+    }
+
+    // ---------- carry lists over to a new login ----------
+
+    data class OldAccount(val key: String, val label: String)
+
+    private fun hasData(k: String): Boolean {
+        val prefs = sp ?: return false
+        return listOf("fav_$k", "list_$k").any { (prefs.getString(it, "[]") ?: "[]").length > 2 } ||
+            (prefs.getString("watch_$k", "{}") ?: "{}").length > 2
+    }
+
+    /** A previous login with saved lists, if this login is new and hasn't been asked yet. */
+    fun previousAccount(): OldAccount? {
+        val prefs = sp ?: return null
+        if (hasData(key) || prefs.getBoolean("asked_$key", false)) return null
+        val acc = runCatching { JSONObject(prefs.getString("accounts", "{}")!!) }.getOrNull() ?: return null
+        return acc.keys().asSequence().filter { it != key && hasData(it) }
+            .maxByOrNull { acc.optJSONObject(it)?.optLong("t") ?: 0 }
+            ?.let { OldAccount(it, acc.optJSONObject(it)?.optString("label").orEmpty()) }
+    }
+
+    fun markAsked() { sp?.edit()?.putBoolean("asked_$key", true)?.apply() }
+
+    private fun n(s: String) = ca.sanjwad.tvplayer.stalker.TitleMatch.norm(ca.sanjwad.tvplayer.stalker.TitleMatch.queryName(s))
+
+    /** Copies favourites, My List, watched episodes and hidden categories from [old], matching by name. */
+    fun importFrom(old: OldAccount, c: ca.sanjwad.tvplayer.stalker.IptvSource): String {
+        val prefs = sp ?: return ""
+        val k = old.key
+        val oldFav = runCatching { parseChannels(prefs.getString("fav_$k", "[]")!!) }.getOrDefault(emptyList())
+        val oldList = runCatching { parseSaved(prefs.getString("list_$k", "[]")!!) }.getOrDefault(emptyList())
+        val oldWatch = runCatching { JSONObject(prefs.getString("watch_$k", "{}")!!) }.getOrDefault(JSONObject())
+        val oldHidden = runCatching { JSONObject(prefs.getString("hidden_$k", "{}")!!) }.getOrDefault(JSONObject())
+        val oldNames = runCatching { JSONObject(prefs.getString("catnames_$k", "{}")!!) }.getOrDefault(JSONObject())
+
+        // Channels by name.
+        val chans = runCatching { c.liveChannels() }.getOrDefault(emptyList())
+        val byName = chans.groupBy { it.name.trim().lowercase() }
+        val newFav = oldFav.mapNotNull { byName[it.name.trim().lowercase()]?.firstOrNull() }.distinctBy { it.id }
+
+        // Movies and shows by title (and year when there's more than one match).
+        val catalogues = HashMap<String, Map<String, List<ca.sanjwad.tvplayer.stalker.VodItem>>>()
+        val idMap = HashMap<String, String>()
+        val newList = oldList.mapNotNull { sv ->
+            val type = runCatching { c.browseCategories(sv.kind).first }.getOrDefault(sv.type)
+            val cat = catalogues.getOrPut(type) {
+                runCatching { c.catalogue(type) }.getOrDefault(emptyList()).groupBy { n(it.name) }
+            }
+            val cands = cat[n(sv.item.name)].orEmpty()
+                .filter { if (sv.kind == "series") it.isSeries || type == "series" else !it.isSeries }
+            val pick = cands.firstOrNull { sv.item.year.isNotBlank() && it.year.take(4) == sv.item.year.take(4) } ?: cands.firstOrNull()
+            pick?.let { idMap[sv.item.id] = it.id; SavedItem(sv.kind, type, it) }
+        }.distinctBy { it.item.id }
+
+        val newWatch = JSONObject()
+        oldWatch.keys().forEach { oldId -> idMap[oldId]?.let { newWatch.put(it, oldWatch.optString(oldId)) } }
+
+        // Hidden categories by name.
+        val newHidden = JSONObject()
+        oldHidden.keys().forEach { section ->
+            val arr = oldHidden.optJSONArray(section) ?: return@forEach
+            val names = (0 until arr.length()).mapNotNull { oldNames.optString("$section|${arr.optString(it)}").ifBlank { null } }
+                .map { it.trim().lowercase() }.toSet()
+            if (names.isEmpty()) return@forEach
+            val cats = runCatching { if (section == "live") c.liveGenres() else c.browseCategories(section).second }.getOrDefault(emptyList())
+            newHidden.put(section, JSONArray(cats.filter { it.title.trim().lowercase() in names }.map { it.id }))
+        }
+
+        prefs.edit()
+            .putString("fav_$key", JSONArray(newFav.map(::channelJson)).toString())
+            .putString("list_$key", JSONArray(newList.map(::savedJson)).toString())
+            .putString("watch_$key", newWatch.toString())
+            .putString("hidden_$key", newHidden.toString())
+            .putBoolean("asked_$key", true)
+            .commit()
+        return "Brought over ${newFav.size} of ${oldFav.size} favourite channels and ${newList.size} of ${oldList.size} titles."
+    }
+
     fun isHidden(section: String, id: String) = hidden[section]?.contains(id) == true
 
     fun setHidden(section: String, ids: Collection<String>, hide: Boolean) {
@@ -84,6 +172,12 @@ object Library {
         val prefs = ctx.getSharedPreferences("library", Context.MODE_PRIVATE)
         sp = prefs
         key = accountKey.hashCode().toString()
+        // Remember every login used on this TV, so a new one can copy lists from the last.
+        runCatching {
+            val acc = JSONObject(prefs.getString("accounts", "{}")!!)
+            acc.put(key, JSONObject().put("label", accountKey.substringAfter("://")).put("t", System.currentTimeMillis()))
+            prefs.edit().putString("accounts", acc.toString()).apply()
+        }
         favourites = runCatching { parseChannels(prefs.getString("fav_$key", "[]")!!) }.getOrDefault(emptyList())
         myList = runCatching { parseSaved(prefs.getString("list_$key", "[]")!!) }.getOrDefault(emptyList())
         watched = runCatching {
