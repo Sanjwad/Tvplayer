@@ -32,6 +32,20 @@ object Library {
     var watched by mutableStateOf<Map<String, Pair<Int, Int>>>(emptyMap())
         private set
 
+    /** Hidden category ids per section ("live", "movies", "series"). */
+    var hidden by mutableStateOf<Map<String, Set<String>>>(emptyMap())
+        private set
+
+    fun isHidden(section: String, id: String) = hidden[section]?.contains(id) == true
+
+    fun setHidden(section: String, ids: Collection<String>, hide: Boolean) {
+        val cur = hidden[section].orEmpty()
+        hidden = hidden + (section to (if (hide) cur + ids else cur - ids.toSet()))
+        val o = JSONObject()
+        hidden.forEach { (k, v) -> o.put(k, JSONArray(v.toList())) }
+        sp?.edit()?.putString("hidden_$key", o.toString())?.apply()
+    }
+
     fun load(ctx: Context, accountKey: String) {
         val prefs = ctx.getSharedPreferences("library", Context.MODE_PRIVATE)
         sp = prefs
@@ -45,6 +59,13 @@ object Library {
                 val a = parts.getOrNull(0)?.toIntOrNull(); val b = parts.getOrNull(1)?.toIntOrNull()
                 if (a != null && b != null) k to (a to b) else null
             }.toMap()
+        }.getOrDefault(emptyMap())
+        hidden = runCatching {
+            val o = JSONObject(prefs.getString("hidden_$key", "{}")!!)
+            o.keys().asSequence().associateWith { k ->
+                val a = o.optJSONArray(k) ?: JSONArray()
+                (0 until a.length()).map { a.optString(it) }.toSet()
+            }
         }.getOrDefault(emptyMap())
     }
 

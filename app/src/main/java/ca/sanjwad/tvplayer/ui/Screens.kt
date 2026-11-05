@@ -100,6 +100,7 @@ class VodState(val kind: String) {
     var results by mutableStateOf<List<VodItem>>(emptyList())
     var searching by mutableStateOf(false)
     var gridMode by mutableStateOf(false)
+    var editMode by mutableStateOf(false)
     var catsAttempt by mutableIntStateOf(0)
     /** TMDB-driven rows: title → matched titles (null while loading). */
     var trending by mutableStateOf<List<Pair<String, List<VodItem>?>>>(emptyList())
@@ -280,6 +281,7 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
 private const val SEARCH_ID = "__search"
 private const val FAV_ID = "__fav"
 private const val LIST_ID = "__list"
+private const val EDIT_ID = "__edit"
 private val Gold = Color(0xFFFFC94D)
 
 @Composable
@@ -330,7 +332,8 @@ fun LiveScreen(s: LiveState) {
         err != null -> CenterMessage("Couldn't load channels", err)
         else -> {
             val favs = Library.favourites
-            val shown = remember(s.genre, s.all, favs, s.query) {
+            val hiddenLive = Library.hidden["live"].orEmpty()
+            val shown = remember(s.genre, s.all, favs, s.query, hiddenLive) {
                 when (s.genre) {
                     SEARCH_ID -> {
                         val q = s.query.trim().lowercase()
@@ -338,15 +341,18 @@ fun LiveScreen(s: LiveState) {
                         else s.all.filter { it.name.lowercase().contains(q) || it.number.toString() == q }
                     }
                     FAV_ID -> { val byId = s.all.associateBy { it.id }; favs.map { byId[it.id] ?: it } }
-                    "*" -> s.all
+                    "*" -> { val hid = Library.hidden["live"].orEmpty(); if (hid.isEmpty()) s.all else s.all.filter { it.genreId !in hid } }
                     else -> s.all.filter { it.genreId == s.genre }
                 }
             }
-            val side = listOf(Genre(SEARCH_ID, "🔍  Search"), Genre(FAV_ID, "★  Favourites")) + s.genres
+            val side = listOf(Genre(SEARCH_ID, "🔍  Search"), Genre(FAV_ID, "★  Favourites")) +
+                s.genres.filter { it.id == "*" || it.id !in hiddenLive } + Genre(EDIT_ID, "✎  Edit groups")
             Row(Modifier.fillMaxSize()) {
                 SideList(side, s.genre, 280) { s.genre = it.id }
                 Spacer(Modifier.width(16.dp))
-                Column(Modifier.weight(1f).fillMaxHeight()) {
+                if (s.genre == EDIT_ID) Column(Modifier.weight(1f).fillMaxHeight()) {
+                    ManageGroups("live", s.genres) { s.genre = "*" }
+                } else Column(Modifier.weight(1f).fillMaxHeight()) {
                     if (s.genre == SEARCH_ID) {
                         SearchField(s.query, { s.query = it }, "Channel name or number")
                         Spacer(Modifier.height(10.dp))
@@ -472,7 +478,7 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
     }
 
     val label = kindLabel(s.kind)
-    val side = listOf(Genre(SEARCH_ID, "🔍  Search")) + s.categories
+    val side = listOf(Genre(SEARCH_ID, "🔍  Search")) + s.categories.filter { !Library.isHidden(s.kind, it.id) }
     Row(Modifier.fillMaxSize()) {
         SideList(side, s.category, 260) { g ->
             if (s.category != g.id) { s.category = g.id; loadPage(true) }

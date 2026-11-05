@@ -218,7 +218,10 @@ private fun rememberHero(): Pair<VodItem?, (VodItem) -> Unit> {
 
 @Composable
 fun VodTab(s: VodState, onOpen: (VodItem) -> Unit) {
-    if (s.gridMode) {
+    if (s.editMode) {
+        BackHandler { s.editMode = false }
+        ManageGroups(s.kind, s.categories) { s.editMode = false }
+    } else if (s.gridMode) {
         BackHandler { s.gridMode = false }
         VodScreen(s, onOpen)
     } else {
@@ -279,6 +282,9 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
             FocusBox(onClick = { openGrid(s.categories.firstOrNull()?.id ?: "__search") }, shape = RoundedCornerShape(16.dp)) {
                 Text("☰  All categories", Modifier.padding(horizontal = 14.dp, vertical = 6.dp), fontSize = 14.sp, color = Color.White)
             }
+            if (s.catsLoaded) FocusBox(onClick = { s.editMode = true }, shape = RoundedCornerShape(16.dp)) {
+                Text("✎  Edit categories", Modifier.padding(horizontal = 14.dp, vertical = 6.dp), fontSize = 14.sp, color = Color.White)
+            }
         }
         val err = s.error
         when {
@@ -299,7 +305,7 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                             PosterRow(title, list, setHero, onOpen)
                         }
                     }
-                    items(s.categories, key = { it.id }) { cat ->
+                    items(s.categories.filter { !Library.isHidden(s.kind, it.id) }, key = { it.id }) { cat ->
                         LaunchedEffect(cat.id) {
                             if (s.rowItems[cat.id] == null) {
                                 val list = withContext(Dispatchers.IO) {
