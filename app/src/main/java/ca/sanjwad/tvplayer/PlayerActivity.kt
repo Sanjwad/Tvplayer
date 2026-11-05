@@ -52,6 +52,8 @@ class PlayerActivity : ComponentActivity() {
     private var firstAgent = 0
     private var currentUrl: String? = null
     private val prefs by lazy { getSharedPreferences("player", MODE_PRIVATE) }
+    /** Recent request outcomes, shown when playback fails so the cause is visible. */
+    private val trail = java.util.Collections.synchronizedList(mutableListOf<String>())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -71,7 +73,18 @@ class PlayerActivity : ComponentActivity() {
             .addInterceptor { chain ->
                 val b = chain.request().newBuilder().header("User-Agent", agents[agentIndex])
                 if (chain.request().url.host == portalHost) portalHeaders.forEach { (k, v) -> b.header(k, v) }
-                chain.proceed(b.build())
+                val resp = chain.proceed(b.build())
+                val u = resp.request.url
+                var line = "${resp.code} ${u.host}:${u.port}${u.encodedPath.take(40)}"
+                resp.priorResponse?.let { pr -> line = "${pr.code}→" + line }
+                if (resp.code >= 400) {
+                    val body = runCatching { resp.peekBody(300).string().replace(Regex("\\s+"), " ").trim() }.getOrDefault("")
+                    val hdrs = listOf("Server", "Content-Type", "X-Reason", "X-Error").mapNotNull { h -> resp.header(h)?.let { "$h: $it" } }
+                    line += "\n   " + (hdrs + listOfNotNull(body.ifBlank { null })).joinToString(" | ")
+                }
+                trail += line
+                if (trail.size > 12) trail.removeAt(0)
+                resp
             }
             .build()
         val http = OkHttpDataSource.Factory(okhttp)
@@ -110,7 +123,12 @@ class PlayerActivity : ComponentActivity() {
                     }
                     detail += "\n(tried ${agents.size} player types)"
                 }
-                Toast.makeText(this@PlayerActivity, "Playback problem: $detail", Toast.LENGTH_LONG).show()
+                val log = synchronized(trail) { trail.takeLast(6).joinToString("\n") }
+                android.app.AlertDialog.Builder(this@PlayerActivity)
+                    .setTitle("Playback problem")
+                    .setMessage("$detail\n\nWhat happened:\n$log")
+                    .setPositiveButton("OK", null)
+                    .show()
             }
         })
 
