@@ -62,7 +62,7 @@ fun HomeScreen(
     onOpen: (type: String, item: VodItem, seasonId: String?) -> Unit,
     onSettings: () -> Unit,
 ) {
-    val entries = listOf("📺   Live TV", "🎬   Movies", "🎞   Series", "★   My List", "⚙   Settings")
+    val entries = listOf("📺   Live TV", "🎬   Movies", "🎞   TV Shows", "★   My List", "⚙   Settings")
     val fr = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(150); runCatching { fr.requestFocus() } }
 
@@ -228,16 +228,42 @@ fun VodTab(s: VodState, onOpen: (VodItem) -> Unit) {
 
 @Composable
 private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
-    LaunchedEffect(s.kind) {
+    var waited by remember { mutableStateOf(0) }
+    LaunchedEffect(s.kind, s.catsAttempt) {
         if (!s.catsLoaded) {
+            s.error = null
             val r = withContext(Dispatchers.IO) {
                 runCatching { (Session.client ?: error("Not connected")).browseCategories(s.kind) }
             }
-            r.exceptionOrNull()?.let { s.error = it.message }
+            r.exceptionOrNull()?.let {
+                s.error = if (it is java.io.InterruptedIOException) "Your provider took too long to reply." else it.message
+            }
             r.getOrNull()?.let { (type, cats) -> s.type = type; s.categories = cats; s.catsLoaded = true }
         }
     }
+    // Count seconds while waiting, so a slow provider is obvious rather than looking frozen.
+    LaunchedEffect(s.catsLoaded, s.catsAttempt) {
+        waited = 0
+        while (!s.catsLoaded && s.error == null) { delay(1000); waited++ }
+    }
+    // Trending rows from TMDB, matched to this provider's catalogue.
+    LaunchedEffect(s.kind, s.catsLoaded) {
+        val tmdb = Session.tmdb ?: return@LaunchedEffect
+        if (!s.catsLoaded || s.trending.isNotEmpty()) return@LaunchedEffect
+        val rows: List<Pair<String, () -> List<ca.sanjwad.tvplayer.stalker.TmdbClient.Hit>>> =
+            if (s.kind == "series") listOf("🔥  Trending TV shows" to tmdb::trendingTv, "⭐  Popular TV shows" to tmdb::popularTv)
+            else listOf("🔥  Trending this week" to tmdb::trendingMovies, "🎟  In theatres now" to tmdb::inTheatres)
+        s.trending = rows.map { it.first to null }
+        val catalogue = withContext(Dispatchers.IO) {
+            runCatching { Session.client?.catalogue(s.type) }.getOrNull()
+        }.orEmpty()
+        s.trending = rows.map { (title, fetch) ->
+            val hits = withContext(Dispatchers.IO) { runCatching { fetch() }.getOrDefault(emptyList()) }
+            title to ca.sanjwad.tvplayer.stalker.TitleMatch.match(hits, catalogue)
+        }
+    }
     val (hero, setHero) = rememberHero()
+    val label = kindLabel(s.kind)
 
     fun openGrid(categoryId: String) {
         s.category = categoryId; s.items = emptyList(); s.total = 0; s.page = 0
@@ -256,12 +282,24 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
         }
         val err = s.error
         when {
-            !s.catsLoaded && err != null -> CenterMessage("Couldn't load ${s.kind}", err)
-            !s.catsLoaded -> CenterMessage("Loading ${s.kind}…", loading = true)
-            s.categories.isEmpty() -> CenterMessage("No ${s.kind} on this server")
+            !s.catsLoaded && err != null -> Column(Modifier.fillMaxWidth().padding(top = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Couldn't load $label", fontSize = 18.sp, color = Color.White)
+                Spacer(Modifier.height(6.dp))
+                Text(err, fontSize = 14.sp, color = TextDim)
+                Spacer(Modifier.height(16.dp))
+                TvButton("Try again", onClick = { s.catsAttempt++ })
+            }
+            !s.catsLoaded -> CenterMessage("Loading $label…",
+                if (waited >= 8) "Waiting for your provider… ${waited}s" else null, loading = true)
+            s.categories.isEmpty() -> CenterMessage("No $label on this server")
             else -> {
                 val saved = Library.myList.filter { it.kind == s.kind }.map { it.item }
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    s.trending.forEachIndexed { i, (title, list) ->
+                        if (list == null || list.isNotEmpty()) item("trend$i") {
+                            PosterRow(title, list, setHero, onOpen)
+                        }
+                    }
                     if (saved.isNotEmpty()) item("mylist") {
                         PosterRow("★  My List", saved, setHero, onOpen)
                     }

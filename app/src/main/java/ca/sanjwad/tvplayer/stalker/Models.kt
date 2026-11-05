@@ -25,7 +25,10 @@ data class VodItem(
 
 data class Season(val id: String, val name: String, val episodes: List<Episode>?)
 
-data class Episode(val title: String, val number: String, val cmd: String, val seriesParam: String, val plot: String = "")
+data class Episode(
+    val title: String, val number: String, val cmd: String, val seriesParam: String,
+    val plot: String = "", val thumb: String? = null, val duration: String = "",
+)
 
 data class Page(val items: List<VodItem>, val totalItems: Int)
 

@@ -100,13 +100,18 @@ class VodState(val kind: String) {
     var results by mutableStateOf<List<VodItem>>(emptyList())
     var searching by mutableStateOf(false)
     var gridMode by mutableStateOf(false)
+    var catsAttempt by mutableIntStateOf(0)
+    /** TMDB-driven rows: title → matched titles (null while loading). */
+    var trending by mutableStateOf<List<Pair<String, List<VodItem>?>>>(emptyList())
     val rowItems = androidx.compose.runtime.mutableStateMapOf<String, List<VodItem>>()
     fun reset() {
-        query = ""; results = emptyList(); searching = false; gridMode = false; rowItems.clear()
+        query = ""; results = emptyList(); searching = false; gridMode = false; rowItems.clear(); trending = emptyList()
         categories = emptyList(); category = null; items = emptyList(); page = 0; total = 0
         error = null; catsLoaded = false; job?.cancel(); job = null; loading = false
     }
 }
+
+fun kindLabel(kind: String) = if (kind == "series") "TV shows" else "movies"
 
 private suspend fun focusSoon(fr: FocusRequester) {
     delay(150)
@@ -160,6 +165,7 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
     var xtServer by remember { mutableStateOf(prefs.xtServer) }
     var xtUser by remember { mutableStateOf(prefs.xtUser) }
     var xtPass by remember { mutableStateOf(prefs.xtPass) }
+    var tmdbKey by remember { mutableStateOf(prefs.tmdbKey) }
     var err by remember { mutableStateOf<String?>(null) }
     if (hasSaved) BackHandler(onBack = onCancel)
     val w = Modifier.width(560.dp)
@@ -191,12 +197,20 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
             label = { Text("Password") }, singleLine = true, modifier = w,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
         )
+        Spacer(Modifier.height(20.dp))
+        OutlinedTextField(
+            value = tmdbKey, onValueChange = { tmdbKey = it.trim() },
+            label = { Text("TMDB key (optional) — adds Trending and In theatres rows") },
+            singleLine = true, modifier = w,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+        )
         err?.let {
             Spacer(Modifier.height(12.dp))
             Text(it, color = ErrorRed, fontSize = 16.sp)
         }
         Spacer(Modifier.height(24.dp))
         TvButton("Save and connect", onClick = {
+            prefs.tmdbKey = tmdbKey.trim()
             var srv = xtServer.trim(); var u = xtUser; var pw = xtPass
             XtreamClient.parseM3u(srv)?.let { (a, b, c) -> srv = a; u = b; pw = c; xtServer = a; xtUser = b; xtPass = c }
             when {
@@ -219,14 +233,22 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
         error = null
         val r = withContext(Dispatchers.IO) {
             runCatching {
-                val c: IptvSource = XtreamClient(prefs.xtServer, prefs.xtUser, prefs.xtPass)
+                val c: IptvSource = XtreamClient(prefs.xtServer, prefs.xtUser, prefs.xtPass,
+                    java.io.File(ctx.filesDir, "catalogue").apply { mkdirs() })
                 c.connect()
                 c
             }
         }
-        r.onSuccess {
+        r.onSuccess { c ->
             Library.load(ctx, "${prefs.xtServer}|${prefs.xtUser}")
-            Session.client = it; onDone()
+            Session.tmdb = prefs.tmdbKey.takeIf { it.isNotBlank() }?.let { ca.sanjwad.tvplayer.stalker.TmdbClient(it) }
+            Session.client = c
+            // Start fetching Movies and TV Shows categories now, while Live TV is on screen.
+            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                runCatching { c.browseCategories("movies") }
+                runCatching { c.browseCategories("series") }
+            }
+            onDone()
         }
             .onFailure { error = it.message ?: "Couldn't connect." }
     }
@@ -449,7 +471,7 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
         s.searching = false
     }
 
-    val label = s.kind
+    val label = kindLabel(s.kind)
     val side = listOf(Genre(SEARCH_ID, "🔍  Search"), Genre(LIST_ID, "★  My List")) + s.categories
     Row(Modifier.fillMaxSize()) {
         SideList(side, s.category, 260) { g ->
@@ -646,17 +668,29 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
                                     val en = Library.episodeNumber(ep, ei)
                                     val seen = last != null && (sn < last.first || (sn == last.first && en <= last.second))
                                     FocusBox(onClick = { playEpisode(cur, seasonIdx, ep, ei) }, modifier = Modifier.fillMaxWidth()) {
-                                        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                            Text("E$en", Modifier.width(46.dp), color = TextDim, fontSize = 15.sp)
-                                            Column(Modifier.weight(1f)) {
-                                                Text(ep.title, color = if (seen) TextDim else Color.White, fontSize = 15.sp,
-                                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                if (ep.plot.isNotBlank()) {
-                                                    Spacer(Modifier.height(2.dp))
-                                                    Text(ep.plot, color = TextDim, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                                }
+                                        Row(Modifier.padding(8.dp), verticalAlignment = Alignment.Top) {
+                                            Box(Modifier.width(176.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(6.dp)).background(Bg)) {
+                                                AsyncImage(model = ep.thumb ?: item.backdrop ?: item.poster, contentDescription = null,
+                                                    modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+                                                    alpha = if (seen) 0.55f else 1f)
+                                                Text("▶", Modifier.align(Alignment.Center), color = Color.White.copy(alpha = 0.85f), fontSize = 22.sp)
+                                                if (seen) Text("✓ Watched", Modifier.align(Alignment.BottomStart).padding(5.dp)
+                                                    .clip(RoundedCornerShape(4.dp)).background(Color.Black.copy(alpha = 0.6f))
+                                                    .padding(horizontal = 5.dp, vertical = 1.dp), color = Accent, fontSize = 11.sp)
                                             }
-                                            if (seen) Text("✓", color = Accent, fontSize = 16.sp, modifier = Modifier.padding(start = 8.dp))
+                                            Spacer(Modifier.width(14.dp))
+                                            Column(Modifier.weight(1f)) {
+                                                Text("$en.  ${ep.title}", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                if (ep.duration.isNotBlank()) {
+                                                    Spacer(Modifier.height(2.dp))
+                                                    Text(ep.duration, color = TextDim, fontSize = 12.sp)
+                                                }
+                                                Spacer(Modifier.height(4.dp))
+                                                Text(ep.plot.ifBlank { "No description from your provider for this episode." },
+                                                    color = if (ep.plot.isBlank()) TextDim else Color(0xFFD5DAE1),
+                                                    fontSize = 13.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                                            }
                                         }
                                     }
                                 }

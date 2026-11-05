@@ -17,16 +17,30 @@ import java.util.concurrent.TimeUnit
  * Xtream Codes API (player_api.php). Stream addresses are built directly from the
  * server, username, password and stream id, so playback needs no extra round trip.
  */
-class XtreamClient(serverUrl: String, private val user: String, private val pass: String) : IptvSource {
+class XtreamClient(
+    serverUrl: String,
+    private val user: String,
+    private val pass: String,
+    /** Where category lists are saved between launches, so browsing opens instantly. */
+    private val cacheDir: java.io.File? = null,
+) : IptvSource {
 
     private val base: HttpUrl = normalise(serverUrl)
     private val root = "${base.scheme}://${base.host}:${base.port}"
     override val portalHost: String get() = base.host
 
+    /** Small API calls: give up after 30s overall so a stalled server can't hang the screen. */
     private val http = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(25, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
+        .build()
+
+    /** Big catalogue downloads: allowed longer overall, but must keep data flowing. */
+    private val bulkHttp = http.newBuilder()
+        .callTimeout(4, TimeUnit.MINUTES)
+        .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
     /** Whole-category lists are cached so paging through them is instant. */
@@ -117,13 +131,76 @@ class XtreamClient(serverUrl: String, private val user: String, private val pass
 
     // ---------- movies & series ----------
 
+    private val catCache = java.util.concurrent.ConcurrentHashMap<String, List<Genre>>()
+
     override fun browseCategories(kind: String): Pair<String, List<Genre>> {
-        val action = if (kind == "series") "get_series_categories" else "get_vod_categories"
-        val cats = api("action" to action).objects().map { Genre(it.str("category_id"), it.str("category_name")) }
-        return (if (kind == "series") "series" else "vod") to cats
+        val type = if (kind == "series") "series" else "vod"
+        catCache[type]?.let { return type to it }
+        val file = cacheFile("cats_$type")
+        val fresh = readCats(file, maxAgeMs = 12 * HOUR)
+        val cats = fresh ?: try {
+            val action = if (type == "series") "get_series_categories" else "get_vod_categories"
+            api("action" to action).objects().map { Genre(it.str("category_id"), it.str("category_name")) }
+                .also { writeCats(file, it) }
+        } catch (e: Exception) {
+            readCats(file, maxAgeMs = Long.MAX_VALUE) ?: throw e // offline or slow: fall back to an older copy
+        }
+        catCache[type] = cats
+        return type to cats
     }
 
-    private val fetchLock = Any()
+    // ---------- on-device cache ----------
+
+    private val HOUR = 3_600_000L
+    private val accountTag = "${root}|$user".hashCode().toUInt().toString(16)
+
+    private fun cacheFile(name: String): java.io.File? =
+        cacheDir?.let { java.io.File(it, "xt_${accountTag}_" + name.replace(Regex("[^A-Za-z0-9_]"), "_") + ".json") }
+
+    private fun fresh(f: java.io.File?, maxAgeMs: Long) =
+        f != null && f.exists() && System.currentTimeMillis() - f.lastModified() < maxAgeMs
+
+    private fun writeCats(f: java.io.File?, cats: List<Genre>) {
+        f ?: return
+        runCatching { f.writeText(JSONArray(cats.map { JSONArray().put(it.id).put(it.title) }).toString()) }
+    }
+
+    private fun readCats(f: java.io.File?, maxAgeMs: Long): List<Genre>? {
+        if (!fresh(f, maxAgeMs)) return null
+        return runCatching {
+            val a = JSONArray(f!!.readText())
+            (0 until a.length()).map { a.getJSONArray(it).let { r -> Genre(r.getString(0), r.getString(1)) } }
+        }.getOrNull()
+    }
+
+    private fun writeItems(f: java.io.File?, items: List<VodItem>) {
+        f ?: return
+        runCatching {
+            val a = JSONArray()
+            items.forEach {
+                a.put(JSONArray().put(it.id).put(it.name).put(it.poster ?: "").put(it.cmd).put(if (it.isSeries) 1 else 0)
+                    .put(it.year).put(it.rating).put(it.backdrop ?: "").put(it.description))
+            }
+            f.writeText(a.toString())
+        }
+    }
+
+    private fun readItems(f: java.io.File?, maxAgeMs: Long): List<VodItem>? {
+        if (!fresh(f, maxAgeMs)) return null
+        return runCatching {
+            val a = JSONArray(f!!.readText())
+            (0 until a.length()).map { i ->
+                val r = a.getJSONArray(i)
+                VodItem(
+                    id = r.getString(0), name = r.getString(1), poster = r.optString(2).ifBlank { null },
+                    cmd = r.optString(3), isSeries = r.optInt(4) == 1, year = r.optString(5), rating = r.optString(6),
+                    backdrop = r.optString(7).ifBlank { null }, description = r.optString(8),
+                )
+            }
+        }.getOrNull()
+    }
+
+    private val fetchLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
 
     /**
      * Reads a (possibly huge) JSON array of objects without loading it all into memory,
@@ -136,7 +213,7 @@ class XtreamClient(serverUrl: String, private val user: String, private val pass
             params.forEach { (k, v) -> addQueryParameter(k, v) }
         }.build()
         val req = Request.Builder().url(url).header("User-Agent", Net.UA).build()
-        http.newCall(req).execute().use { r ->
+        bulkHttp.newCall(req).execute().use { r ->
             if (!r.isSuccessful) throw IOException("The server replied with error ${r.code}.")
             val reader = JsonReader(r.body!!.charStream())
             val out = ArrayList<Map<String, String>>()
@@ -173,9 +250,14 @@ class XtreamClient(serverUrl: String, private val user: String, private val pass
     private fun fullList(type: String, categoryId: String): List<VodItem> {
         val key = "$type/$categoryId"
         synchronized(listCache) { listCache[key]?.let { return it } }
-        // One download at a time, so repeated searches or quick category changes don't pile up.
-        synchronized(fetchLock) {
+        // One download per list at a time, so repeated searches or quick scrolling don't pile up.
+        synchronized(fetchLocks.getOrPut(key) { Any() }) {
             synchronized(listCache) { listCache[key]?.let { return it } }
+            val file = cacheFile("list_$key")
+            readItems(file, maxAgeMs = 12 * HOUR)?.let { cached ->
+                synchronized(listCache) { listCache[key] = cached }
+                return cached
+            }
             val all = categoryId == "*"
             val cat: Array<Pair<String, String>> = if (all) emptyArray() else arrayOf("category_id" to categoryId)
             val list = if (type == "series") {
@@ -205,9 +287,12 @@ class XtreamClient(serverUrl: String, private val user: String, private val pass
                 }
             }
             synchronized(listCache) { listCache[key] = list }
+            writeItems(file, list)
             return list
         }
     }
+
+    override fun catalogue(type: String): List<VodItem> = fullList(type, "*")
 
     override fun search(type: String, query: String): List<VodItem> {
         val words = query.lowercase().split(" ").filter { it.isNotBlank() }
@@ -277,10 +362,24 @@ class XtreamClient(serverUrl: String, private val user: String, private val pass
                             cmd = "$root/series/$user/$pass/$id.$ext",
                             seriesParam = "",
                             plot = e.optJSONObject("info")?.str("plot").orEmpty(),
+                            thumb = e.optJSONObject("info")?.img("movie_image"),
+                            duration = prettyDuration(e.optJSONObject("info")),
                         )
                     }.sortedBy { it.number.toIntOrNull() ?: Int.MAX_VALUE },
                 )
             }
+    }
+
+    /** "00:45:12" or 2712 seconds → "45m" / "1h 5m". */
+    private fun prettyDuration(info: JSONObject?): String {
+        info ?: return ""
+        val secs = info.optInt("duration_secs", 0).takeIf { it > 0 } ?: run {
+            val p = info.str("duration").split(":").mapNotNull { it.toIntOrNull() }
+            when (p.size) { 3 -> p[0] * 3600 + p[1] * 60 + p[2]; 2 -> p[0] * 60 + p[1]; else -> 0 }
+        }
+        if (secs <= 0) return ""
+        val h = secs / 3600; val m = (secs % 3600) / 60
+        return if (h > 0) "${h}h ${m}m" else "${m}m"
     }
 
     override fun episodes(type: String, item: VodItem, season: Season): List<Episode> = season.episodes.orEmpty()
