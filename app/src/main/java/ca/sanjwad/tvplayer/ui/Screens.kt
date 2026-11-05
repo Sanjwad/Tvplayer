@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -254,8 +255,25 @@ fun HomeScreen(
     val fr = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusSoon(fr) }
 
+    // Back: first jump to the tabs; from the tabs, press twice quickly to leave the app.
+    val ctx = LocalContext.current
+    var tabsFocused by remember { mutableStateOf(false) }
+    var lastBack by remember { mutableStateOf(0L) }
+    BackHandler {
+        if (!tabsFocused) {
+            runCatching { fr.requestFocus() }
+        } else {
+            val now = System.currentTimeMillis()
+            if (now - lastBack < 2000) (ctx as? android.app.Activity)?.finish()
+            else {
+                lastBack = now
+                android.widget.Toast.makeText(ctx, "Press Back again to exit", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     Column(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 20.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.onFocusChanged { tabsFocused = it.hasFocus }, verticalAlignment = Alignment.CenterVertically) {
             Text("Sanj TV", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Accent)
             Spacer(Modifier.width(28.dp))
             tabs.forEachIndexed { i, t ->
