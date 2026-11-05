@@ -177,6 +177,28 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
     var tmdbSaved by remember { mutableStateOf(false) }
     var startLast by remember { mutableStateOf(prefs.startOnLastChannel) }
     if (hasSaved) BackHandler { if (editing) { editing = false; err = null } else onCancel() }
+
+    // Category editor, opened from the Categories section below.
+    var managing by remember { mutableStateOf<String?>(null) }
+    val m = managing
+    if (m != null) {
+        BackHandler { managing = null }
+        var cats by remember(m) { mutableStateOf<List<Genre>?>(null) }
+        LaunchedEffect(m) {
+            cats = withContext(Dispatchers.IO) {
+                runCatching {
+                    val c = Session.client ?: error("Not connected")
+                    if (m == "live") c.liveGenres() else c.browseCategories(m).second
+                }.getOrDefault(emptyList())
+            }
+        }
+        Box(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 32.dp)) {
+            val c = cats
+            if (c == null) CenterMessage("Loading categories…", loading = true)
+            else ManageGroups(m, c) { managing = null }
+        }
+        return
+    }
     val w = Modifier.width(600.dp)
     val fr = remember { FocusRequester() }
     LaunchedEffect(editing) { focusSoon(fr) }
@@ -263,6 +285,21 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
                 Text("Saving reconnects with the new details. Favourites and My List are kept per login.", fontSize = 13.sp, color = TextDim)
                 Spacer(Modifier.height(12.dp))
                 loginFields()
+            }
+        }
+
+        // ---- Categories
+        Spacer(Modifier.height(24.dp))
+        Text("CATEGORIES", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextDim, modifier = w)
+        Text("Hide the groups and categories you never watch.", fontSize = 13.sp, color = TextDim, modifier = w)
+        Spacer(Modifier.height(8.dp))
+        listOf("live" to "Live TV groups", "movies" to "Movie categories", "series" to "TV show categories").forEach { (key, label) ->
+            val hiddenCount = Library.hidden[key].orEmpty().size
+            FocusBox(onClick = { managing = key }, modifier = w.padding(vertical = 3.dp), shape = RoundedCornerShape(10.dp)) {
+                Row(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(label, Modifier.weight(1f), fontSize = 15.sp, color = Color.White)
+                    Text(if (hiddenCount > 0) "$hiddenCount hidden  ›" else "›", fontSize = 14.sp, color = TextDim)
+                }
             }
         }
 
@@ -514,7 +551,7 @@ fun LiveScreen(s: LiveState) {
                 }
             }
             val side = listOf(Genre(SEARCH_ID, "🔍  Search"), Genre(FAV_ID, "★  Favourites")) +
-                s.genres.filter { it.id == "*" || it.id !in hiddenLive } + Genre(EDIT_ID, "✎  Edit groups")
+                s.genres.filter { it.id == "*" || it.id !in hiddenLive }
             Row(Modifier.fillMaxSize()) {
                 SideList(side, s.genre, 280) { s.genre = it.id }
                 Spacer(Modifier.width(16.dp))

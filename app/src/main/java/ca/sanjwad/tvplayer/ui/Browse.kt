@@ -359,17 +359,7 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
 
     Column(Modifier.fillMaxSize()) {
         Hero(hero)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(vertical = 6.dp)) {
-            FocusBox(onClick = { openGrid("__search") }, shape = RoundedCornerShape(16.dp)) {
-                Text("🔍  Search", Modifier.padding(horizontal = 14.dp, vertical = 6.dp), fontSize = 14.sp, color = Color.White)
-            }
-            FocusBox(onClick = { openGrid(s.categories.firstOrNull()?.id ?: "__search") }, shape = RoundedCornerShape(16.dp)) {
-                Text("☰  All categories", Modifier.padding(horizontal = 14.dp, vertical = 6.dp), fontSize = 14.sp, color = Color.White)
-            }
-            if (s.catsLoaded) FocusBox(onClick = { s.editMode = true }, shape = RoundedCornerShape(16.dp)) {
-                Text("✎  Edit categories", Modifier.padding(horizontal = 14.dp, vertical = 6.dp), fontSize = 14.sp, color = Color.White)
-            }
-        }
+        Spacer(Modifier.height(6.dp))
         val err = s.error
         when {
             !s.catsLoaded && err != null -> Column(Modifier.fillMaxWidth().padding(top = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
