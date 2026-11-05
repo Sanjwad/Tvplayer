@@ -107,7 +107,7 @@ class XtreamClient(serverUrl: String, private val user: String, private val pass
                 id = id,
                 name = it.str("name"),
                 number = it.str("num").toIntOrNull() ?: 0,
-                cmd = "$root/live/$user/$pass/$id.ts",
+                cmd = "$root/live/$user/$pass/$id.m3u8",
                 logo = it.img("stream_icon"),
                 genreId = it.str("category_id"),
             )

@@ -174,7 +174,7 @@ class PlayerActivity : ComponentActivity() {
     private fun tried() = (agentIndex - firstAgent + agents.size) % agents.size
 
     private fun play(url: String, keepFormat: Boolean = false) {
-        if (url != currentUrl && !keepFormat) asHls = false
+        if (url != currentUrl && !keepFormat && liveIndex < 0) asHls = false
         currentUrl = url
         val item = MediaItem.Builder().setUri(url)
             .apply { if (asHls) setMimeType(MimeTypes.APPLICATION_M3U8) }
