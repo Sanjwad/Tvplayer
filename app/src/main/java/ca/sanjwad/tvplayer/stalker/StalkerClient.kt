@@ -233,7 +233,10 @@ class StalkerClient(
                 name = it.optString("name"),
                 number = it.optString("number").toIntOrNull() ?: 0,
                 cmd = it.optString("cmd"),
-                logo = absolute(it.optString("logo")),
+                logo = it.optString("logo").let { l ->
+                    if (l.isNotBlank() && l != "null" && !l.contains('/')) "$root/stalker_portal/misc/logos/320/$l"
+                    else absolute(l)
+                },
                 genreId = it.optString("tv_genre_id"),
             )
         }.sortedBy { if (it.number > 0) it.number else Int.MAX_VALUE }

@@ -79,7 +79,9 @@ class LiveState {
     fun reset() { genres = emptyList(); all = emptyList(); genre = "*"; error = null; loaded = false }
 }
 
-class VodState(val type: String) {
+/** [kind] is the tab ("movies" or "series"); [type] is the portal section actually used for it. */
+class VodState(val kind: String) {
+    var type = "vod"
     var categories by mutableStateOf<List<Genre>>(emptyList())
     var category by mutableStateOf<String?>(null)
     var items by mutableStateOf<List<VodItem>>(emptyList())
@@ -110,7 +112,7 @@ fun App() {
     var detail by remember { mutableStateOf<Pair<String, VodItem>?>(null) }
     var tab by remember { mutableIntStateOf(0) }
     val live = remember { LiveState() }
-    val movies = remember { VodState("vod") }
+    val movies = remember { VodState("movies") }
     val series = remember { VodState("series") }
 
     Box(Modifier.fillMaxSize().background(Bg)) {
@@ -274,8 +276,8 @@ fun HomeScreen(
         Spacer(Modifier.height(16.dp))
         when (tab) {
             0 -> LiveScreen(live)
-            1 -> VodScreen(movies) { onOpen("vod", it) }
-            else -> VodScreen(series) { onOpen("series", it) }
+            1 -> VodScreen(movies) { onOpen(movies.type, it) }
+            else -> VodScreen(series) { onOpen(series.type, it) }
         }
     }
 }
@@ -370,19 +372,21 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
         }
     }
 
-    LaunchedEffect(s.type) {
+    LaunchedEffect(s.kind) {
         if (!s.catsLoaded) {
             val r = withContext(Dispatchers.IO) {
-                runCatching { (Session.client ?: error("Not connected")).vodCategories(s.type) }
+                runCatching { loadCategories(Session.client ?: error("Not connected"), s.kind) }
             }
-            r.onSuccess {
-                s.categories = it; s.catsLoaded = true
-                if (s.category == null && it.isNotEmpty()) { s.category = it.first().id; loadPage(true) }
-            }.onFailure { s.error = it.message }
+            r.exceptionOrNull()?.let { s.error = it.message }
+            r.getOrNull()?.let { (type, cats) ->
+                s.type = type
+                s.categories = cats; s.catsLoaded = true
+                if (s.category == null && cats.isNotEmpty()) { s.category = cats.first().id; loadPage(true) }
+            }
         }
     }
 
-    val label = if (s.type == "series") "series" else "movies"
+    val label = s.kind
     Row(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.width(260.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(s.categories) { g ->
@@ -399,7 +403,7 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
             when {
                 err != null && s.items.isEmpty() -> CenterMessage("Couldn't load $label", err)
                 s.catsLoaded && s.categories.isEmpty() -> CenterMessage("No $label section on this portal",
-                    if (s.type == "series") "Series may be listed under Movies." else null)
+                    null)
                 s.items.isEmpty() && (s.loading || !s.catsLoaded) -> CenterMessage("Loading $label…", loading = true)
                 s.items.isEmpty() -> CenterMessage("Nothing in this category")
                 else -> LazyVerticalGrid(
@@ -415,6 +419,25 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
             }
         }
     }
+}
+
+private fun isSeriesLike(title: String): Boolean =
+    Regex("SERIES|SHOWS|TV SHOW|SEASON|SÉRIE|SERIE", RegexOption.IGNORE_CASE).containsMatchIn(title)
+
+/**
+ * Many providers put TV series inside the movie (vod) section. Split it by category name;
+ * fall back to the portal's own series section when the vod section has no series categories.
+ */
+private fun loadCategories(c: StalkerClient, kind: String): Pair<String, List<Genre>> {
+    val vod = runCatching { c.vodCategories("vod") }
+    if (kind == "movies") {
+        val all = vod.getOrThrow()
+        val (ser, mov) = all.partition { isSeriesLike(it.title) }
+        return "vod" to if (ser.isEmpty()) all else mov.filter { it.id != "*" }
+    }
+    val vodSeries = vod.getOrDefault(emptyList()).filter { isSeriesLike(it.title) }
+    if (vodSeries.isNotEmpty()) return "vod" to vodSeries
+    return "series" to c.vodCategories("series")
 }
 
 @Composable
