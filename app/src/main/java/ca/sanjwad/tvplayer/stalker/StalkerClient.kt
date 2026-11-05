@@ -310,32 +310,67 @@ class StalkerClient(
 
     // ---------- playback ----------
 
-    fun createLink(type: String, cmd: String, series: String = ""): String {
-        // Portals differ in which extra parameters they want; try the common variants in turn.
-        val cmds = listOf(cmd) + (if (!cmd.trim().startsWith("ffmpeg", true)) listOf("ffmpeg ${cmd.trim()}") else emptyList())
-        val extras = listOf(
-            mapOf("series" to series, "forced_storage" to "undefined", "disable_ad" to "0", "download" to "0"),
-            mapOf("series" to series, "forced_storage" to "0", "disable_ad" to "0", "download" to "0", "force_ch_link_check" to "0"),
-        )
-
-        val log = mutableListOf<String>()
-        for (c in cmds) for (extra in extras) {
-            val t0 = System.currentTimeMillis()
-            val reply = try {
-                call(mapOf("type" to type, "action" to "create_link", "cmd" to c) + extra)
-            } catch (e: Exception) {
-                log += "• ${e.javaClass.simpleName} ${e.message.orEmpty()} (${(System.currentTimeMillis() - t0) / 1000}s)"
-                continue
-            }
-            val js = reply.opt("js")
-            val raw = when (js) {
-                is JSONObject -> js.optString("cmd").takeIf { it != "null" }.orEmpty()
-                is String -> js
-                else -> ""
-            }
-            streamUrl(raw)?.let { return it }
-            log += "• ${js?.toString()?.take(140) ?: "(no js)"} (${(System.currentTimeMillis() - t0) / 1000}s)"
+    /** Asks the portal for a playable address for [cmd]. Returns the URL plus what was tried, for errors. */
+    private fun requestLink(type: String, cmd: String, series: String, log: MutableList<String>): String? {
+        val t0 = System.currentTimeMillis()
+        val reply = try {
+            call(
+                mapOf(
+                    "type" to type, "action" to "create_link", "cmd" to cmd, "series" to series,
+                    "forced_storage" to "undefined", "disable_ad" to "0", "download" to "0",
+                )
+            )
+        } catch (e: Exception) {
+            log += "• ${e.javaClass.simpleName} ${e.message.orEmpty()} (${(System.currentTimeMillis() - t0) / 1000}s)"
+            return null
         }
+        val js = reply.opt("js")
+        val raw = when (js) {
+            is JSONObject -> js.optString("cmd").takeIf { it != "null" }.orEmpty()
+            is String -> js
+            else -> ""
+        }
+        streamUrl(raw)?.let { return it }
+        log += "• ${cmd.take(60)} → ${js?.toString()?.take(120) ?: "(no js)"} (${(System.currentTimeMillis() - t0) / 1000}s)"
+        return null
+    }
+
+    /**
+     * On older Ministra portals a movie's cmd ("/media/123.mpg") names the movie, not a file.
+     * A real box first lists the movie's files and asks for a link to one of those.
+     */
+    private fun movieFileCmds(movieId: String): List<String> {
+        val js = call(
+            mapOf("type" to "vod", "action" to "get_ordered_list", "movie_id" to movieId,
+                "season_id" to "0", "episode_id" to "0", "p" to "1")
+        ).optJSONObject("js") ?: return emptyList()
+        val out = mutableListOf<String>()
+        val data = js.optJSONArray("data") ?: return emptyList()
+        for (i in 0 until data.length()) {
+            val row = data.optJSONObject(i) ?: continue
+            val files = row.optJSONArray("files")
+            if (files != null) for (j in 0 until files.length()) {
+                files.optJSONObject(j)?.optString("cmd")?.takeIf { it.isNotBlank() && it != "null" }?.let { out += it }
+            }
+            row.optString("cmd").takeIf { it.isNotBlank() && it != "null" }?.let { out += it }
+        }
+        return out.distinct()
+    }
+
+    fun createLink(type: String, cmd: String, series: String = "", movieId: String? = null): String {
+        val log = mutableListOf<String>()
+        val isMovieRef = type == "vod" && movieId != null && !cmd.contains("file_") && series.isBlank()
+
+        if (isMovieRef) {
+            val files = runCatching { movieFileCmds(movieId!!) }
+                .onFailure { log += "• file list: ${it.message.orEmpty()}" }
+                .getOrDefault(emptyList())
+                .filter { it != cmd }
+            if (files.isEmpty()) log += "• file list: (none)"
+            for (f in files.take(3)) requestLink(type, f, "", log)?.let { return it }
+        }
+
+        requestLink(type, cmd, series, log)?.let { return it }
         streamUrl(cmd)?.takeIf { !it.contains("localhost") }?.let { return it }
         throw IOException(
             "The portal didn't return a stream for this.\nItem cmd: ${cmd.take(100)}\n" + log.joinToString("\n")

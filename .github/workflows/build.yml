@@ -33,6 +33,6 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk tvplayer.apk
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest tvplayer.apk \
-            --title "TV Player build ${{ github.run_number }}" \
+            --title "Sanj TV build ${{ github.run_number }}" \
             --notes "Version 0.1.${{ github.run_number }}" \
             --target "${{ github.sha }}" --latest

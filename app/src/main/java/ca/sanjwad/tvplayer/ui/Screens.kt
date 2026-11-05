@@ -468,11 +468,11 @@ fun DetailScreen(type: String, item: VodItem, onBack: () -> Unit) {
     var msg by remember { mutableStateOf<String?>(null) }
     val fr = remember { FocusRequester() }
 
-    fun play(cmd: String, series: String, title: String) {
+    fun play(cmd: String, series: String, title: String, movieId: String? = null) {
         msg = "Starting…"
         scope.launch {
             val r = withContext(Dispatchers.IO) {
-                runCatching { (Session.client ?: error("Not connected")).createLink("vod", cmd, series) }
+                runCatching { (Session.client ?: error("Not connected")).createLink("vod", cmd, series, movieId) }
             }
             r.onSuccess {
                 msg = null
@@ -527,7 +527,7 @@ fun DetailScreen(type: String, item: VodItem, onBack: () -> Unit) {
             Spacer(Modifier.height(20.dp))
 
             if (!item.isSeries) {
-                TvButton("▶  Play", onClick = { play(item.cmd, "", item.name) }, modifier = Modifier.focusRequester(fr))
+                TvButton("▶  Play", onClick = { play(item.cmd, "", item.name, item.id) }, modifier = Modifier.focusRequester(fr))
             } else {
                 val ss = seasons
                 if (ss == null) {
