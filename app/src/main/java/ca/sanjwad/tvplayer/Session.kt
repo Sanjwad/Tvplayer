@@ -33,6 +33,9 @@ class Prefs(ctx: Context) {
     var tmdbKey: String
         get() = sp.getString("tmdb_key", "").orEmpty()
         set(v) = sp.edit().putString("tmdb_key", v).apply()
+    var startOnLastChannel: Boolean
+        get() = sp.getBoolean("start_last_channel", true)
+        set(v) = sp.edit().putBoolean("start_last_channel", v).apply()
     val isConfigured: Boolean
         get() = xtServer.isNotBlank() && xtUser.isNotBlank() && xtPass.isNotBlank()
 }

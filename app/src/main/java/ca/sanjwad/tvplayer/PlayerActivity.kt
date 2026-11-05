@@ -230,6 +230,7 @@ class PlayerActivity : ComponentActivity() {
         }
         liveIndex = ((index % list.size) + list.size) % list.size
         val ch = list[liveIndex]
+        Library.lastChannelId = ch.id
         toast(if (ch.number > 0) "${ch.number}  ${ch.name}" else ch.name)
         switchJob?.cancel()
         switchJob = lifecycleScope.launch {

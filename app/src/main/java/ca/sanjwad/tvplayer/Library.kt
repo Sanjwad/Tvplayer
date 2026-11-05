@@ -56,6 +56,11 @@ object Library {
         sp?.edit()?.putString("progress_$key", o.toString())?.apply()
     }
 
+    /** The live channel watched last, so the app can reopen on it. */
+    var lastChannelId: String
+        get() = sp?.getString("last_channel_$key", "").orEmpty()
+        set(v) { sp?.edit()?.putString("last_channel_$key", v)?.apply() }
+
     fun isHidden(section: String, id: String) = hidden[section]?.contains(id) == true
 
     fun setHidden(section: String, ids: Collection<String>, hide: Boolean) {

@@ -212,6 +212,15 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
             Spacer(Modifier.height(12.dp))
             Text(it, color = ErrorRed, fontSize = 16.sp)
         }
+        Spacer(Modifier.height(14.dp))
+        var startLast by remember { mutableStateOf(prefs.startOnLastChannel) }
+        FocusBox(onClick = { startLast = !startLast; prefs.startOnLastChannel = startLast }, modifier = w, shape = RoundedCornerShape(8.dp)) {
+            Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Open the last live channel when Sanj TV starts", Modifier.weight(1f), fontSize = 15.sp, color = Color.White)
+                Text(if (startLast) "On" else "Off", fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                    color = if (startLast) Accent else TextDim)
+            }
+        }
         Spacer(Modifier.height(16.dp))
         Row(w, verticalAlignment = Alignment.CenterVertically) {
             Text("TMDB", Modifier.clip(RoundedCornerShape(4.dp)).background(Color(0xFF0D253F))
@@ -260,6 +269,18 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
             Session.tmdb = prefs.tmdbKey.ifBlank { ca.sanjwad.tvplayer.BuildConfig.TMDB_KEY }
                 .takeIf { it.isNotBlank() }?.let { ca.sanjwad.tvplayer.stalker.TmdbClient(it) }
             Session.client = c
+            // Reopen on the last live channel, like TiVimate.
+            val lastId = Library.lastChannelId
+            if (prefs.startOnLastChannel && lastId.isNotEmpty()) {
+                val chans = withContext(Dispatchers.IO) { runCatching { c.liveChannels() }.getOrDefault(emptyList()) }
+                val hid = Library.hidden["live"].orEmpty()
+                val visible = chans.filter { it.genreId !in hid }
+                val idx = visible.indexOfFirst { it.id == lastId }
+                if (idx >= 0) {
+                    Session.channels = visible
+                    ctx.startActivity(Intent(ctx, PlayerActivity::class.java).putExtra("live_index", idx))
+                }
+            }
             // Start fetching Movies and TV Shows categories now, while Live TV is on screen.
             kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
                 runCatching { c.browseCategories("movies") }
