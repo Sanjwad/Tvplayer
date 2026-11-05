@@ -522,7 +522,7 @@ fun DetailScreen(type: String, item: VodItem, onBack: () -> Unit) {
             }
             msg?.let {
                 Spacer(Modifier.height(12.dp))
-                Text(it, fontSize = 16.sp, color = if (it == "Starting…") Accent else ErrorRed)
+                Text(it, fontSize = 14.sp, color = if (it == "Starting…") Accent else ErrorRed)
             }
             Spacer(Modifier.height(20.dp))
 

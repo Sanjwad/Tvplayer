@@ -312,18 +312,20 @@ class StalkerClient(
 
     fun createLink(type: String, cmd: String, series: String = ""): String {
         // Portals differ in which extra parameters they want; try the common variants in turn.
-        val variants = listOf(
+        val cmds = listOf(cmd) + (if (!cmd.trim().startsWith("ffmpeg", true)) listOf("ffmpeg ${cmd.trim()}") else emptyList())
+        val extras = listOf(
             mapOf("series" to series, "forced_storage" to "undefined", "disable_ad" to "0", "download" to "0"),
             mapOf("series" to series, "forced_storage" to "0", "disable_ad" to "0", "download" to "0", "force_ch_link_check" to "0"),
-            mapOf("forced_storage" to "", "disable_ad" to "0", "download" to "0"),
-        ).let { if (series.isBlank()) it else it + listOf(mapOf("series" to "", "forced_storage" to "undefined", "disable_ad" to "0")) }
+        )
 
-        var lastReply = ""
-        for (extra in variants) {
+        val log = mutableListOf<String>()
+        for (c in cmds) for (extra in extras) {
+            val t0 = System.currentTimeMillis()
             val reply = try {
-                call(mapOf("type" to type, "action" to "create_link", "cmd" to cmd) + extra)
-            } catch (e: AuthException) { throw e } catch (e: Exception) {
-                lastReply = e.message.orEmpty(); continue
+                call(mapOf("type" to type, "action" to "create_link", "cmd" to c) + extra)
+            } catch (e: Exception) {
+                log += "• ${e.javaClass.simpleName} ${e.message.orEmpty()} (${(System.currentTimeMillis() - t0) / 1000}s)"
+                continue
             }
             val js = reply.opt("js")
             val raw = when (js) {
@@ -331,27 +333,18 @@ class StalkerClient(
                 is String -> js
                 else -> ""
             }
-            val out = streamUrl(raw)
-            if (out != null) return out
-            lastReply = (if (js is JSONObject) js.optString("error").takeIf { it.isNotBlank() && it != "null" } else null)
-                ?: js?.toString()?.take(160).orEmpty()
+            streamUrl(raw)?.let { return it }
+            log += "• ${js?.toString()?.take(140) ?: "(no js)"} (${(System.currentTimeMillis() - t0) / 1000}s)"
         }
         streamUrl(cmd)?.takeIf { !it.contains("localhost") }?.let { return it }
         throw IOException(
-            "The portal didn't return a stream for this." +
-                "\nPortal replied: ${lastReply.ifBlank { "(empty)" }}" +
-                "\nItem cmd: ${cmd.take(120)}"
+            "The portal didn't return a stream for this.\nItem cmd: ${cmd.take(100)}\n" + log.joinToString("\n")
         )
     }
 
-    /** Turns a portal cmd ("ffmpeg http://…", "/media/…", "http://…") into a playable address. */
+    /** Pulls a full http address out of a portal cmd such as "ffmpeg http://…". */
     private fun streamUrl(raw: String): String? {
-        val c = raw.trim()
-        if (c.isEmpty()) return null
-        val http = c.split(" ").lastOrNull { it.startsWith("http", true) }
-        if (http != null && !http.endsWith("stream=")) return http
-        val last = c.split(" ").last()
-        if (last.startsWith("/") && last.length > 1) return root + last
-        return null
+        val http = raw.trim().split(" ").lastOrNull { it.startsWith("http", true) } ?: return null
+        return if (http.endsWith("stream=")) null else http
     }
 }
