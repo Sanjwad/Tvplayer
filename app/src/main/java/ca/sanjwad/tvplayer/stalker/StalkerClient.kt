@@ -45,7 +45,13 @@ class AuthException : IOException("Authorization failed")
  * Talks to a Stalker / Ministra middleware portal the same way a MAG box does:
  * handshake for a token, then JSON calls against portal.php or server/load.php.
  */
-class StalkerClient(portalUrl: String, macAddress: String) {
+class StalkerClient(
+    portalUrl: String,
+    macAddress: String,
+    private val serial: String = "",
+    private val deviceId: String = "",
+    private val deviceId2: String = "",
+) {
 
     private val mac = macAddress.trim().uppercase()
     private val portal: HttpUrl = normalise(portalUrl)
@@ -135,12 +141,12 @@ class StalkerClient(portalUrl: String, macAddress: String) {
     }
 
     private fun profileParams(): Map<String, String> {
-        val sn = md5(mac).take(13)
+        val sn = serial.trim().ifBlank { md5(mac).take(13) }
         return mapOf(
             "type" to "stb", "action" to "get_profile", "hd" to "1",
             "ver" to "ImageDescription: 0.2.18-r23-250; ImageDate: Thu Sep 13 11:31:16 EEST 2018; PORTAL version: 5.6.2; API Version: JS API version: 343; STB API version: 146; Player Engine version: 0x58c",
             "num_banks" to "2", "sn" to sn, "stb_type" to "MAG250", "image_version" to "218",
-            "video_out" to "hdmi", "device_id" to md5(mac + "id"), "device_id2" to md5(mac + "id2"),
+            "video_out" to "hdmi", "device_id" to deviceId.trim(), "device_id2" to deviceId2.trim(),
             "signature" to "", "auth_second_step" to "1", "hw_version" to "1.7-BD-00",
             "not_valid_token" to "0", "api_signature" to "262", "prehash" to "",
         )

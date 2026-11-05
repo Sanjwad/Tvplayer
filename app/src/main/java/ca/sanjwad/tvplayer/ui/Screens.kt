@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -136,11 +138,14 @@ fun App() {
 fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: () -> Unit) {
     var portal by remember { mutableStateOf(prefs.portal) }
     var mac by remember { mutableStateOf(prefs.mac.ifBlank { "00:1A:79:" }) }
+    var serial by remember { mutableStateOf(prefs.serial) }
+    var dev1 by remember { mutableStateOf(prefs.deviceId) }
+    var dev2 by remember { mutableStateOf(prefs.deviceId2) }
     var err by remember { mutableStateOf<String?>(null) }
     if (hasSaved) BackHandler(onBack = onCancel)
 
     Column(
-        Modifier.fillMaxSize().padding(48.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 48.dp, vertical = 32.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -161,6 +166,26 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
             singleLine = true, modifier = Modifier.width(560.dp),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
         )
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = serial, onValueChange = { serial = it },
+            label = { Text("Serial number (optional, copy from TiVimate)") },
+            singleLine = true, modifier = Modifier.width(560.dp),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+        )
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.width(560.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedTextField(
+                value = dev1, onValueChange = { dev1 = it },
+                label = { Text("Device ID (optional)") },
+                singleLine = true, modifier = Modifier.weight(1f),
+            )
+            OutlinedTextField(
+                value = dev2, onValueChange = { dev2 = it },
+                label = { Text("Device ID 2 (optional)") },
+                singleLine = true, modifier = Modifier.weight(1f),
+            )
+        }
         err?.let {
             Spacer(Modifier.height(12.dp))
             Text(it, color = ErrorRed, fontSize = 16.sp)
@@ -171,7 +196,11 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
             when {
                 portal.isBlank() -> err = "Enter the portal URL."
                 !Regex("([0-9A-F]{2}:){5}[0-9A-F]{2}").matches(m) -> err = "MAC should look like 00:1A:79:12:34:56"
-                else -> { prefs.portal = portal.trim(); prefs.mac = m; onSaved() }
+                else -> {
+                    prefs.portal = portal.trim(); prefs.mac = m
+                    prefs.serial = serial.trim(); prefs.deviceId = dev1.trim(); prefs.deviceId2 = dev2.trim()
+                    onSaved()
+                }
             }
         })
     }
@@ -186,7 +215,7 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
     LaunchedEffect(attempt) {
         error = null
         val r = withContext(Dispatchers.IO) {
-            runCatching { StalkerClient(prefs.portal, prefs.mac).also { it.connect() } }
+            runCatching { StalkerClient(prefs.portal, prefs.mac, prefs.serial, prefs.deviceId, prefs.deviceId2).also { it.connect() } }
         }
         r.onSuccess { Session.client = it; onDone() }
             .onFailure { error = it.message ?: "Couldn't connect." }
@@ -204,7 +233,7 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
         ) {
             Text("Couldn't connect", fontSize = 26.sp, color = Color.White, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
-            Text(e, fontSize = 17.sp, color = TextDim)
+            Text(e, fontSize = 15.sp, color = TextDim, modifier = Modifier.width(760.dp))
             Spacer(Modifier.height(24.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TvButton("Try again", onClick = { attempt++ }, modifier = Modifier.focusRequester(fr))
