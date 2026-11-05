@@ -11,7 +11,12 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import okhttp3.Cookie
+import okhttp3.CookieJar
+import okhttp3.HttpUrl
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -38,12 +43,27 @@ class PlayerActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        val http = DefaultHttpDataSource.Factory()
-            .setUserAgent(StalkerClient.UA)
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(30_000)
-            .setDefaultRequestProperties(Session.client?.streamHeaders() ?: emptyMap())
+        // Portal headers go only to the portal itself; video servers get a plain request,
+        // and any cookies they hand out are kept for the follow-up requests (playlists, segments).
+        val client = Session.client
+        val portalHost = client?.portalHost
+        val portalHeaders = client?.streamHeaders() ?: emptyMap()
+        val okhttp = OkHttpClient.Builder()
+            .cookieJar(MemoryCookieJar())
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val req = chain.request()
+                if (req.url.host == portalHost) {
+                    val b = req.newBuilder()
+                    portalHeaders.forEach { (k, v) -> b.header(k, v) }
+                    chain.proceed(b.build())
+                } else chain.proceed(req)
+            }
+            .build()
+        val http = OkHttpDataSource.Factory(okhttp).setUserAgent(StalkerClient.UA)
 
         player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(http))
@@ -142,4 +162,20 @@ class PlayerActivity : ComponentActivity() {
         player.release()
         super.onDestroy()
     }
+}
+
+/** Keeps cookies a video server sets so later requests in the same playback carry them. */
+private class MemoryCookieJar : CookieJar {
+    private val store = mutableMapOf<String, MutableList<Cookie>>()
+
+    override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+        synchronized(store) {
+            val list = store.getOrPut(url.host) { mutableListOf() }
+            list.removeAll { old -> cookies.any { it.name == old.name } }
+            list.addAll(cookies)
+        }
+    }
+
+    override fun loadForRequest(url: HttpUrl): List<Cookie> =
+        synchronized(store) { store[url.host]?.toList() ?: emptyList() }
 }

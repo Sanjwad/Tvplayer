@@ -55,6 +55,7 @@ class StalkerClient(
 
     private val mac = macAddress.trim().uppercase()
     private val portal: HttpUrl = normalise(portalUrl)
+    val portalHost: String get() = portal.host
     private val root = "${portal.scheme}://${portal.host}:${portal.port}"
     private val candidates = buildCandidates()
 
