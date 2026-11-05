@@ -177,6 +177,37 @@ class XtreamClient(
         String(android.util.Base64.decode(s, android.util.Base64.DEFAULT), Charsets.UTF_8)
     }.getOrDefault(s).trim()
 
+    /** The last raw guide reply, shown in Settings so a missing guide can be diagnosed. */
+    @Volatile var lastGuideReply: String = "(no guide requested yet)"
+        private set
+
+    private val serverTime = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+        .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+
+    private fun timeOf(o: JSONObject, vararg keys: String): Long? {
+        for (k in keys) {
+            val v = o.str(k)
+            if (v.isEmpty()) continue
+            v.toLongOrNull()?.let { return if (it < 10_000_000_000L) it * 1000 else it }
+            runCatching { synchronized(serverTime) { serverTime.parse(v.take(19)) }?.time }.getOrNull()?.let { return it }
+        }
+        return null
+    }
+
+    private fun listings(action: String, channel: Channel, now: Long): List<Programme> {
+        val reply = api("action" to action, "stream_id" to channel.id, "limit" to "4")
+        lastGuideReply = "$action for ${channel.name}: " + reply.toString().take(300)
+        val rows = when (reply) {
+            is JSONObject -> reply.optJSONArray("epg_listings").objects()
+            else -> reply.objects()
+        }
+        return rows.mapNotNull {
+            val start = timeOf(it, "start_timestamp", "start") ?: return@mapNotNull null
+            val end = timeOf(it, "stop_timestamp", "end_timestamp", "stop", "end") ?: return@mapNotNull null
+            Programme(b64(it.str("title")), b64(it.str("description")), start, end)
+        }.filter { it.end > now }.sortedBy { it.start }.take(3)
+    }
+
     override fun nowNext(channel: Channel): List<Programme> {
         val now = System.currentTimeMillis()
         epgCache[channel.id]?.let { (at, list) ->
@@ -185,16 +216,12 @@ class XtreamClient(
         }
         epgGate.acquire()
         try {
-            val js = api("action" to "get_short_epg", "stream_id" to channel.id, "limit" to "3") as? JSONObject
-            val rows = js?.optJSONArray("epg_listings").objects()
-            val list = rows.mapNotNull {
-                val start = (it.str("start_timestamp").toLongOrNull() ?: return@mapNotNull null) * 1000
-                val end = (it.str("stop_timestamp").toLongOrNull() ?: return@mapNotNull null) * 1000
-                Programme(b64(it.str("title")), b64(it.str("description")), start, end)
-            }.filter { it.end > now }.sortedBy { it.start }
+            var list = runCatching { listings("get_short_epg", channel, now) }.getOrDefault(emptyList())
+            if (list.isEmpty()) list = runCatching { listings("get_simple_data_table", channel, now) }.getOrDefault(emptyList())
             epgCache[channel.id] = now to list
             return list
         } catch (e: Exception) {
+            lastGuideReply = "Guide error for ${channel.name}: ${e.message}"
             epgCache[channel.id] = now to emptyList()
             return emptyList()
         } finally {

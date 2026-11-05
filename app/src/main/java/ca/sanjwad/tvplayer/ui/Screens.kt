@@ -210,6 +210,10 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
             Spacer(Modifier.height(12.dp))
             Text(it, color = ErrorRed, fontSize = 16.sp)
         }
+        (Session.client as? XtreamClient)?.let { c ->
+            Spacer(Modifier.height(16.dp))
+            Text("Guide check: ${c.lastGuideReply}", fontSize = 12.sp, color = TextDim, modifier = w, maxLines = 4)
+        }
         Spacer(Modifier.height(24.dp))
         TvButton("Save and connect", onClick = {
             prefs.tmdbKey = tmdbKey.trim()
