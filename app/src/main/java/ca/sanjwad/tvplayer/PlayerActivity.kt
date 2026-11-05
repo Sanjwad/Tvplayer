@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.annotation.OptIn
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -51,6 +52,8 @@ class PlayerActivity : ComponentActivity() {
     @Volatile private var agentIndex = 0
     private var firstAgent = 0
     private var currentUrl: String? = null
+    /** Set when the address says .mp4/.mkv/.ts but the server actually sends an HLS playlist. */
+    private var asHls = false
     private val prefs by lazy { getSharedPreferences("player", MODE_PRIVATE) }
     /** Recent request outcomes, shown when playback fails so the cause is visible. */
     private val trail = java.util.Collections.synchronizedList(mutableListOf<String>())
@@ -94,6 +97,9 @@ class PlayerActivity : ComponentActivity() {
             .build()
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY && liveIndex < 0 && asHls != prefs.getBoolean("vod_hls", false)) {
+                    prefs.edit().putBoolean("vod_hls", asHls).apply()
+                }
                 if (state == Player.STATE_READY && liveIndex < 0 && agentIndex != prefs.getInt("vod_agent", 0)) {
                     prefs.edit().putInt("vod_agent", agentIndex).apply()
                     toast("Worked with player type ${agentIndex + 1}, remembered for next time")
@@ -113,6 +119,14 @@ class PlayerActivity : ComponentActivity() {
                     cause = cause.cause
                 }
                 val url = currentUrl
+                if (url != null && !asHls && code == 0 &&
+                    (error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
+                        error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED)
+                ) {
+                    asHls = true
+                    play(url, keepFormat = true)
+                    return
+                }
                 if (liveIndex < 0 && url != null && code in 400..499) {
                     val next = (agentIndex + 1) % agents.size
                     if (next != firstAgent) {
@@ -146,7 +160,8 @@ class PlayerActivity : ComponentActivity() {
                 view.controllerAutoShow = true
                 firstAgent = prefs.getInt("vod_agent", 0).coerceIn(0, agents.size - 1)
                 agentIndex = firstAgent
-                play(url)
+                asHls = prefs.getBoolean("vod_hls", false)
+                play(url, keepFormat = true)
             }
             liveIndex >= 0 -> {
                 view.controllerAutoShow = false
@@ -158,9 +173,13 @@ class PlayerActivity : ComponentActivity() {
 
     private fun tried() = (agentIndex - firstAgent + agents.size) % agents.size
 
-    private fun play(url: String) {
+    private fun play(url: String, keepFormat: Boolean = false) {
+        if (url != currentUrl && !keepFormat) asHls = false
         currentUrl = url
-        player.setMediaItem(MediaItem.fromUri(url))
+        val item = MediaItem.Builder().setUri(url)
+            .apply { if (asHls) setMimeType(MimeTypes.APPLICATION_M3U8) }
+            .build()
+        player.setMediaItem(item)
         player.prepare()
         player.playWhenReady = true
     }
