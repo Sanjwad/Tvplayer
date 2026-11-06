@@ -43,15 +43,8 @@ class PlayerActivity : ComponentActivity() {
 
     // Some video servers only accept certain players. For movies/episodes, try these in turn
     // when refused, and remember the one that worked.
-    private val agents = listOf(
-        Net.UA,
-        "Lavf/58.76.100",
-        "VLC/3.0.20 LibVLC/3.0.20",
-        "okhttp/4.12.0",
-        "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    )
-    @Volatile private var agentIndex = 0
-    private var firstAgent = 0
+    /** Quiet reconnects for movies and episodes after a mid-stream blip. */
+    private var vodRetries = 0
     private var currentUrl: String? = null
     /** Set when the address says .mp4/.mkv/.ts but the server actually sends an HLS playlist. */
     private var asHls = false
@@ -98,7 +91,7 @@ class PlayerActivity : ComponentActivity() {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .addInterceptor { chain ->
-                val b = chain.request().newBuilder().header("User-Agent", agents[agentIndex])
+                val b = chain.request().newBuilder().header("User-Agent", Net.UA)
                 if (chain.request().url.host == portalHost) portalHeaders.forEach { (k, v) -> b.header(k, v) }
                 val resp = chain.proceed(b.build())
                 val u = resp.request.url
@@ -123,7 +116,7 @@ class PlayerActivity : ComponentActivity() {
             .build()
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) liveRetries = 0
+                if (state == Player.STATE_READY) { liveRetries = 0; vodRetries = 0 }
                 if (state == Player.STATE_READY && !resumed) {
                     resumed = true
                     val saved = resumeKey?.takeUnless { intent.getBooleanExtra("from_start", false) }?.let { Library.progress[it] }
@@ -138,10 +131,7 @@ class PlayerActivity : ComponentActivity() {
                 if (state == Player.STATE_READY && liveIndex < 0 && asHls != prefs.getBoolean("vod_hls", false)) {
                     prefs.edit().putBoolean("vod_hls", asHls).apply()
                 }
-                if (state == Player.STATE_READY && liveIndex < 0 && agentIndex != prefs.getInt("vod_agent", 0)) {
-                    prefs.edit().putInt("vod_agent", agentIndex).apply()
-                    toast("Worked with player type ${agentIndex + 1}, remembered for next time")
-                }
+
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -179,15 +169,16 @@ class PlayerActivity : ComponentActivity() {
                     play(url, keepFormat = true)
                     return
                 }
-                if (liveIndex < 0 && url != null && code in 400..499) {
-                    val next = (agentIndex + 1) % agents.size
-                    if (next != firstAgent) {
-                        agentIndex = next
-                        toast("Server refused, trying another way (${tried() + 1}/${agents.size})…")
-                        play(url)
-                        return
-                    }
-                    detail += "\n(tried ${agents.size} player types)"
+                // Movie or episode blipped mid-stream: reconnect and carry on from the same point.
+                if (liveIndex < 0 && url != null && vodRetries < 3) {
+                    vodRetries++
+                    val pos = player.currentPosition
+                    toast("Reconnecting…")
+                    saver.postDelayed({
+                        play(url, keepFormat = true)
+                        if (pos > 0) player.seekTo(pos)
+                    }, 1500L * vodRetries)
+                    return
                 }
                 val log = synchronized(trail) { trail.takeLast(6).joinToString("\n") }
                 android.app.AlertDialog.Builder(this@PlayerActivity)
@@ -211,8 +202,6 @@ class PlayerActivity : ComponentActivity() {
             url != null -> {
                 resumeKey = intent.getStringExtra("key")
                 view.controllerAutoShow = true
-                firstAgent = prefs.getInt("vod_agent", 0).coerceIn(0, agents.size - 1)
-                agentIndex = firstAgent
                 asHls = prefs.getBoolean("vod_hls", false)
                 play(url, keepFormat = true)
             }
@@ -224,7 +213,6 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
-    private fun tried() = (agentIndex - firstAgent + agents.size) % agents.size
 
     private fun play(url: String, keepFormat: Boolean = false) {
         if (url != currentUrl && !keepFormat && liveIndex < 0) asHls = false
