@@ -123,6 +123,7 @@ class PlayerActivity : ComponentActivity() {
             .build()
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) liveRetries = 0
                 if (state == Player.STATE_READY && !resumed) {
                     resumed = true
                     val saved = resumeKey?.takeUnless { intent.getBooleanExtra("from_start", false) }?.let { Library.progress[it] }
@@ -144,6 +145,20 @@ class PlayerActivity : ComponentActivity() {
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                // Live TV fell behind after a stutter: jump back to live, no message.
+                if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+                    player.seekToDefaultPosition()
+                    player.prepare()
+                    return
+                }
+                // Other live hiccups: quietly reconnect the channel a few times before showing anything.
+                if (liveIndex >= 0 && liveRetries < 3) {
+                    liveRetries++
+                    toast("Reconnecting…")
+                    val idx = liveIndex
+                    saver.postDelayed({ if (liveIndex == idx) playLive(idx, retry = true) }, 1500L * liveRetries)
+                    return
+                }
                 var cause: Throwable? = error
                 var detail = error.errorCodeName
                 var code = 0
@@ -222,7 +237,10 @@ class PlayerActivity : ComponentActivity() {
         player.playWhenReady = true
     }
 
-    private fun playLive(index: Int) {
+    private var liveRetries = 0
+
+    private fun playLive(index: Int, retry: Boolean = false) {
+        if (!retry) liveRetries = 0
         val list = Session.channels
         val client = Session.client
         if (list.isEmpty() || client == null) {
@@ -231,7 +249,7 @@ class PlayerActivity : ComponentActivity() {
         liveIndex = ((index % list.size) + list.size) % list.size
         val ch = list[liveIndex]
         Library.lastChannelId = ch.id
-        toast(if (ch.number > 0) "${ch.number}  ${ch.name}" else ch.name)
+        if (!retry) toast(if (ch.number > 0) "${ch.number}  ${ch.name}" else ch.name)
         switchJob?.cancel()
         switchJob = lifecycleScope.launch {
             val link = withContext(Dispatchers.IO) { runCatching { client.createLink("itv", ch.cmd, "", null) } }
@@ -239,7 +257,7 @@ class PlayerActivity : ComponentActivity() {
                 .onFailure { toast(it.message ?: "Couldn't start this channel") }
             // Show what's on now, once the guide answers.
             val now = withContext(Dispatchers.IO) { runCatching { client.nowNext(ch) }.getOrNull()?.firstOrNull() }
-            if (now != null && liveIndex >= 0 && Session.channels.getOrNull(liveIndex)?.id == ch.id) {
+            if (!retry && now != null && liveIndex >= 0 && Session.channels.getOrNull(liveIndex)?.id == ch.id) {
                 toast("${if (ch.number > 0) "${ch.number}  " else ""}${ch.name}\nNow: ${now.title}")
             }
         }
