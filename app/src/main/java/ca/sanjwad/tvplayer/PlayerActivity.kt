@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.annotation.OptIn
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -22,6 +23,8 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.ui.PlayerView
 import ca.sanjwad.tvplayer.stalker.Net
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +49,12 @@ class PlayerActivity : ComponentActivity() {
     /** Quiet reconnects for movies and episodes after a mid-stream blip. */
     private var vodRetries = 0
     private var currentUrl: String? = null
+    /** True once the current movie/episode has actually started, so mid-stream errors are treated as blips. */
+    private var everReady = false
+    /** Connection drops during this playback (quiet retries + reconnects), shown when you leave. */
+    private var drops = 0
+    /** Only show "Reconnecting…" if a reconnect hasn't recovered within a couple of seconds. */
+    private val showReconnecting = Runnable { toast("Reconnecting…") }
     /** Set when the address says .mp4/.mkv/.ts but the server actually sends an HLS playlist. */
     private var asHls = false
     private val prefs by lazy { getSharedPreferences("player", MODE_PRIVATE) }
@@ -77,6 +86,7 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val isLive = intent.getIntExtra("live_index", -1) >= 0
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         // Portal headers go only to the portal itself; video servers get a plain request,
@@ -89,9 +99,11 @@ class PlayerActivity : ComponentActivity() {
             .followRedirects(true)
             .followSslRedirects(true)
             .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            // Movies/episodes: give up on a stalled connection quickly; it's resumed from the same byte.
+            .readTimeout(if (isLive) 30 else 12, TimeUnit.SECONDS)
             .addInterceptor { chain ->
-                val b = chain.request().newBuilder().header("User-Agent", Net.UA)
+                val ua = if (isLive || chain.request().url.host == portalHost) Net.UA else Net.VIDEO_UA
+                val b = chain.request().newBuilder().header("User-Agent", ua)
                 if (chain.request().url.host == portalHost) portalHeaders.forEach { (k, v) -> b.header(k, v) }
                 val resp = chain.proceed(b.build())
                 val u = resp.request.url
@@ -109,14 +121,36 @@ class PlayerActivity : ComponentActivity() {
             .build()
         val http = OkHttpDataSource.Factory(okhttp)
 
-        player = ExoPlayer.Builder(this)
+        val loadControl = if (isLive) {
             // Start playing after ~1s of video instead of the default 2.5s, like TiVimate's quick channel changes.
-            .setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(15_000, 50_000, 1_000, 2_000).build())
-            .setMediaSourceFactory(DefaultMediaSourceFactory(http))
+            DefaultLoadControl.Builder().setBufferDurationsMs(15_000, 50_000, 1_000, 2_000).build()
+        } else {
+            // Movies/episodes are files: keep 1–3 minutes loaded ahead so short drops never reach the screen.
+            DefaultLoadControl.Builder().setBufferDurationsMs(60_000, 180_000, 1_500, 3_000).build()
+        }
+        // Movies/episodes: when the connection drops, retry quietly many times, picking the file up
+        // from exactly where it stopped, while playback carries on from what's already loaded.
+        val errorPolicy = object : DefaultLoadErrorHandlingPolicy() {
+            override fun getMinimumLoadableRetryCount(dataType: Int) =
+                if (isLive) super.getMinimumLoadableRetryCount(dataType) else 15
+
+            override fun getRetryDelayMsFor(info: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
+                val base = super.getRetryDelayMsFor(info)
+                if (isLive || base == C.TIME_UNSET) return base
+                if (info.errorCount == 1) runOnUiThread { drops++ }
+                return minOf(500L * info.errorCount, 3_000L)
+            }
+        }
+        player = ExoPlayer.Builder(this)
+            .setLoadControl(loadControl)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(http).setLoadErrorHandlingPolicy(errorPolicy))
             .build()
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) { liveRetries = 0; vodRetries = 0 }
+                if (state == Player.STATE_READY) {
+                    liveRetries = 0; vodRetries = 0; everReady = true
+                    saver.removeCallbacks(showReconnecting)
+                }
                 if (state == Player.STATE_READY && !resumed) {
                     resumed = true
                     val saved = resumeKey?.takeUnless { intent.getBooleanExtra("from_start", false) }?.let { Library.progress[it] }
@@ -161,7 +195,8 @@ class PlayerActivity : ComponentActivity() {
                     cause = cause.cause
                 }
                 val url = currentUrl
-                if (url != null && !asHls && code == 0 &&
+                // Only try the HLS fallback when the video never started; a mid-stream error is just a blip.
+                if (url != null && !asHls && code == 0 && !(liveIndex < 0 && everReady) &&
                     (error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
                         error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED)
                 ) {
@@ -170,16 +205,18 @@ class PlayerActivity : ComponentActivity() {
                     return
                 }
                 // Movie or episode blipped mid-stream: reconnect and carry on from the same point.
-                if (liveIndex < 0 && url != null && vodRetries < 3) {
+                if (liveIndex < 0 && url != null && vodRetries < 5) {
                     vodRetries++
+                    drops++
                     val pos = player.currentPosition
-                    toast("Reconnecting…")
+                    saver.removeCallbacks(showReconnecting)
+                    saver.postDelayed(showReconnecting, 2_000)
                     saver.postDelayed({
-                        play(url, keepFormat = true)
-                        if (pos > 0) player.seekTo(pos)
-                    }, 1500L * vodRetries)
+                        play(url, keepFormat = true, startMs = pos)
+                    }, if (vodRetries == 1) 300L else 1500L * (vodRetries - 1))
                     return
                 }
+                saver.removeCallbacks(showReconnecting)
                 val log = synchronized(trail) { trail.takeLast(6).joinToString("\n") }
                 android.app.AlertDialog.Builder(this@PlayerActivity)
                     .setTitle("Playback problem")
@@ -214,13 +251,13 @@ class PlayerActivity : ComponentActivity() {
     }
 
 
-    private fun play(url: String, keepFormat: Boolean = false) {
+    private fun play(url: String, keepFormat: Boolean = false, startMs: Long = 0) {
         if (url != currentUrl && !keepFormat && liveIndex < 0) asHls = false
         currentUrl = url
         val item = MediaItem.Builder().setUri(url)
             .apply { if (asHls) setMimeType(MimeTypes.APPLICATION_M3U8) }
             .build()
-        player.setMediaItem(item)
+        if (startMs > 0) player.setMediaItem(item, startMs) else player.setMediaItem(item)
         player.prepare()
         player.playWhenReady = true
     }
@@ -275,7 +312,13 @@ class PlayerActivity : ComponentActivity() {
         super.onStop()
         saveProgress()
         saver.removeCallbacks(saveTick)
+        saver.removeCallbacks(showReconnecting)
         player.pause()
+        // Testing aid: how many times the connection dropped (and was recovered) during this playback.
+        if (liveIndex < 0 && drops > 0) {
+            Toast.makeText(applicationContext, "Connection dropped $drops× during playback (recovered)", Toast.LENGTH_LONG).show()
+            drops = 0
+        }
     }
 
     override fun onStart() {

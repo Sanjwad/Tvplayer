@@ -41,4 +41,7 @@ object Net {
     /** User-Agent sent to the provider; matches a common TV-box player. */
     const val UA =
         "Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3"
+
+    /** User-Agent for movie/episode video files: a widely accepted media player, as IPTV panels expect. */
+    const val VIDEO_UA = "VLC/3.0.20 LibVLC/3.0.20"
 }
