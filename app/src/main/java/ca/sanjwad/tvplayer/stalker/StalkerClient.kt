@@ -131,7 +131,7 @@ class StalkerClient(
             http.newCall(req).execute().use { r ->
                 val body = r.body?.string().orEmpty()
                 val ms = System.currentTimeMillis() - t0
-                PortalLog.add("$what @$short → ${r.code} (${ms}ms) ${body.replace(token ?: "\u0000", "•••").take(300)}")
+                PortalLog.add("$what @$short → ${r.code} (${ms}ms) ${body.replace(token ?: "\u0000", "•••").take(600)}")
                 if (r.code == 401 || r.code == 403 || body.contains("Authorization failed", true)) {
                     throw AuthException()
                 }
@@ -361,6 +361,7 @@ class StalkerClient(
                 "season_id" to "0", "episode_id" to "0")
         )
         return rows.map { s ->
+            // Older portals list each season's episode numbers in "series" and play the season's cmd.
             val arr = s.optJSONArray("series")
             val eps = if (arr != null && arr.length() > 0) {
                 (0 until arr.length()).map { i ->
@@ -368,10 +369,13 @@ class StalkerClient(
                     Episode("Episode $n", n, s.optString("cmd"), n)
                 }
             } else null
-            Season(s.optString("id"), s.optString("name"), eps)
+            val num = s.optString("season_number").clean()
+            val name = s.optString("name").clean().ifBlank { s.optString("season_name").clean() }
+                .ifBlank { if (num.isNotBlank()) "Season $num" else "" }
+            Season(s.optString("id"), name, eps)
         }.map { s ->
-            // Seasons without an episode list: fetch the episodes now, so "Play next" and the
-            // episode numbers work (otherwise every show looks "Caught up").
+            // Newer portals (Ministra 5.6) list episodes per season: fetch them now so "Play next"
+            // and the episode numbers work (otherwise every show looks "Caught up").
             if (s.episodes != null) s
             else s.copy(episodes = runCatching { episodes(type, item, s) }.getOrDefault(emptyList()))
         }
@@ -383,11 +387,13 @@ class StalkerClient(
                 "season_id" to season.id, "episode_id" to "0")
         ).mapIndexed { i, it ->
             val n = it.optString("series_number").clean().ifBlank { (i + 1).toString() }
+            val cmd = it.optString("cmd").clean()
             Episode(
-                title = it.optString("name"),
+                title = it.optString("name").clean().ifBlank { it.optString("series_name").clean() }.ifBlank { "Episode $n" },
                 number = n,
-                cmd = it.optString("cmd"),
-                seriesParam = n,
+                // No cmd: the episode's video files have to be looked up by id when it's played.
+                cmd = cmd.ifBlank { "ep:${item.id}:${season.id}:${it.optString("id")}" },
+                seriesParam = if (cmd.isBlank()) "" else n,
             )
         }
 
@@ -440,30 +446,58 @@ class StalkerClient(
     }
 
     /**
-     * On older Ministra portals a movie's cmd ("/media/123.mpg") names the movie, not a file.
-     * A real box first lists the movie's files and asks for a link to one of those.
+     * On Ministra portals a movie's or episode's cmd names the title, not a file. A real box
+     * lists the title's video files and asks for a link to "/media/file_<id>.mpg".
+     * Returns cmds to try, then direct addresses as a last resort.
      */
-    private fun movieFileCmds(movieId: String): List<String> {
-        val js = call(
+    private fun fileCmds(movieId: String, seasonId: String, episodeId: String): Pair<List<String>, List<String>> {
+        val rows = allPages(
             mapOf("type" to "vod", "action" to "get_ordered_list", "movie_id" to movieId,
-                "season_id" to "0", "episode_id" to "0", "p" to "1")
-        ).optJSONObject("js") ?: return emptyList()
-        val out = mutableListOf<String>()
-        val data = js.optJSONArray("data") ?: return emptyList()
-        for (i in 0 until data.length()) {
-            val row = data.optJSONObject(i) ?: continue
-            val files = row.optJSONArray("files")
-            if (files != null) for (j in 0 until files.length()) {
-                files.optJSONObject(j)?.optString("cmd")?.takeIf { it.isNotBlank() && it != "null" }?.let { out += it }
-            }
-            row.optString("cmd").takeIf { it.isNotBlank() && it != "null" }?.let { out += it }
+                "season_id" to seasonId, "episode_id" to episodeId),
+            maxPages = 2,
+        )
+        val cmds = mutableListOf<String>()
+        val urls = mutableListOf<String>()
+        fun addFile(o: JSONObject) {
+            o.optString("cmd").clean().takeIf { it.isNotBlank() }?.let { cmds += it }
+            val id = o.optString("id").clean()
+            if (id.isNotBlank() && (o.has("url") || o.has("file_type") || o.has("video_id"))) cmds += "/media/file_$id.mpg"
+            o.optString("url").clean().takeIf { it.startsWith("http", true) }?.let { urls += it }
         }
-        return out.distinct()
+        for (row in rows) {
+            val files = row.optJSONArray("files")
+            if (files != null) for (j in 0 until files.length()) files.optJSONObject(j)?.let(::addFile)
+            addFile(row)
+        }
+        return cmds.distinct() to urls.distinct()
+    }
+
+    private fun playFiles(movieId: String, seasonId: String, episodeId: String, skip: String, log: MutableList<String>): String? {
+        val (cmds, urls) = runCatching { fileCmds(movieId, seasonId, episodeId) }
+            .onFailure { log += "• file list: ${it.message.orEmpty()}" }
+            .getOrDefault(emptyList<String>() to emptyList())
+        if (cmds.isEmpty() && urls.isEmpty()) log += "• file list: (none)"
+        for (c in cmds.filter { it != skip }.take(4)) {
+            directUrl(c)?.let { return it }
+            requestLink("vod", c, "", log)?.let { return it }
+        }
+        urls.firstNotNullOfOrNull { directUrl(it) }?.let { log += "• using the file's own address"; return it }
+        return null
     }
 
     override fun createLink(type: String, cmd: String, series: String, movieId: String?): String {
         val log = mutableListOf<String>()
-        // Live channels and series episodes may live in their own section.
+
+        // Episodes from newer portals: look the files up by movie/season/episode id.
+        if (cmd.startsWith("ep:")) {
+            val (m, sid, eid) = cmd.removePrefix("ep:").split(":").let { Triple(it[0], it.getOrElse(1) { "0" }, it.getOrElse(2) { "0" }) }
+            playFiles(m, sid, eid, "", log)?.let { return it }
+            throw IOException(
+                (if (log.any { it.contains("(none)") }) "This episode isn't available from your provider yet."
+                else "The portal didn't return a stream for this episode.") + "\n" + log.joinToString("\n")
+            )
+        }
+
         val t = if (type == "series") "vod" else type
         // A cmd that's already a real address needs no create_link round trip.
         if (t != "itv") directUrl(cmd)?.let { return it }
@@ -472,14 +506,9 @@ class StalkerClient(
         // Portals differ on episodes: some want the episode number, some only the episode's own cmd.
         if (series.isNotBlank()) requestLink(t, cmd, "", log)?.let { return it }
 
-        if (t == "vod" && movieId != null && series.isBlank()) {
-            val files = runCatching { movieFileCmds(movieId) }
-                .onFailure { log += "• file list: ${it.message.orEmpty()}" }
-                .getOrDefault(emptyList())
-                .filter { it != cmd }
-            if (files.isEmpty()) log += "• file list: (none)"
-            files.firstNotNullOfOrNull { directUrl(it) }?.let { return it }
-            for (f in files.take(3)) requestLink(t, f, "", log)?.let { return it }
+        if (t == "vod" && series.isBlank()) {
+            val id = movieId ?: Regex("/media/(\\d+)\\.mpg").find(cmd)?.groupValues?.get(1)
+            if (id != null) playFiles(id, "0", "0", cmd, log)?.let { return it }
         }
         // Episodes from a portal's own series section may need type=series instead.
         if (type == "series" || series.isNotBlank()) {
