@@ -101,6 +101,7 @@ class PlayerActivity : ComponentActivity() {
         val portalHeaders = client?.streamHeaders() ?: emptyMap()
         val okhttp = OkHttpClient.Builder()
             .cookieJar(MemoryCookieJar())
+            .dns(ca.sanjwad.tvplayer.stalker.Ipv4First)
             .followRedirects(true)
             .followSslRedirects(true)
             .connectTimeout(15, TimeUnit.SECONDS)

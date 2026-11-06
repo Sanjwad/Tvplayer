@@ -12,6 +12,15 @@ import java.util.concurrent.TimeUnit
 
 class AuthException : IOException("Authorization failed")
 
+/**
+ * Looks up IPv4 addresses first. Stalker video links are often locked to the address the portal
+ * saw; if the portal is reached over IPv6 and the video server over IPv4 they won't match.
+ */
+object Ipv4First : okhttp3.Dns {
+    override fun lookup(hostname: String): List<java.net.InetAddress> =
+        okhttp3.Dns.SYSTEM.lookup(hostname).sortedBy { if (it is java.net.Inet4Address) 0 else 1 }
+}
+
 /** The last portal requests and replies, shown on the Portal log screen in Settings. */
 object PortalLog {
     private val lines = ArrayDeque<String>()
@@ -48,6 +57,7 @@ class StalkerClient(
     private val candidates = buildCandidates()
 
     private val http = OkHttpClient.Builder()
+        .dns(Ipv4First)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(40, TimeUnit.SECONDS)
         .followRedirects(true)
@@ -200,6 +210,7 @@ class StalkerClient(
                             "Copy them exactly from TiVimate (Settings → Playlists → Stalker Portal parameters)." else ""
                     throw IOException("The portal says:\n$text$hint")
                 }
+                startWatchdog()
                 runCatching {
                     val acc = request(base, mapOf("type" to "account_info", "action" to "get_main_info")).optJSONObject("js")
                     expiry = acc?.optString("phone").orEmpty().takeIf { it.isNotBlank() && it != "null" }
@@ -514,6 +525,38 @@ class StalkerClient(
         "no user agent" to null,
     )
 
+    @Volatile private var lastWatchdog = 0L
+    @Volatile private var watchdogThread: Thread? = null
+
+    private fun startWatchdog() {
+        if (watchdogThread != null) return
+        watchdogThread = Thread {
+            while (true) {
+                try { Thread.sleep(60_000) } catch (e: InterruptedException) { return@Thread }
+                if (api != null) watchdog()
+            }
+        }.apply { isDaemon = true; name = "stalker-watchdog"; start() }
+    }
+
+    /** The "I'm still here" call a MAG box makes about once a minute; some protection systems require it. */
+    fun watchdog(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastWatchdog < 50_000) return
+        lastWatchdog = now
+        runCatching {
+            call(mapOf("type" to "watchdog", "action" to "get_events", "cur_play_type" to "1",
+                "event_active_id" to "0", "init" to "0"))
+        }
+    }
+
+    /** Tells the portal what we're about to play, as a MAG box does. */
+    private fun reportPlay(url: String, contentId: String) {
+        runCatching {
+            call(mapOf("type" to "stb", "action" to "log", "real_action" to "play", "param" to url,
+                "content_id" to contentId, "tmp_type" to "2"))
+        }
+    }
+
     /** create_link for [cmd]; returns the address the portal gave back, or null. */
     private fun linkFor(cmd: String, series: String = ""): String? {
         val reply = runCatching {
@@ -553,7 +596,8 @@ class StalkerClient(
         }
         if (tries.isEmpty()) { log += "• file list: (none)"; PortalLog.pinned = listOf("PLAY: no video files listed"); return null }
 
-        val summary = mutableListOf("PLAY $movieId/$seasonId/$episodeId — tried in order:")
+        watchdog(force = true)
+        val summary = mutableListOf("PLAY $movieId/$seasonId/$episodeId — tried in order (watchdog sent, IPv4 first):")
         var firstUrl: String? = null
         val seen = HashSet<String>()
         for ((name, get) in tries) {
@@ -562,6 +606,7 @@ class StalkerClient(
             if (!seen.add(u)) { summary += "  $name → same link as before"; continue }
             if (firstUrl == null) firstUrl = u
             summary += "  $name → ${u.take(70)}"
+            reportPlay(u, movieId)
             // Same link, different identities: the video server may only let some players in.
             for ((uaName, ua) in uaCandidates) {
                 val (ok, res) = probe(u, ua)
