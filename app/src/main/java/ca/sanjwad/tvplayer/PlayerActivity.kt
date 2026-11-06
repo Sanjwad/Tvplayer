@@ -127,8 +127,9 @@ class PlayerActivity : ComponentActivity() {
         val http = OkHttpDataSource.Factory(okhttp)
 
         val loadControl = if (isLive) {
-            // Start playing after ~1s of video instead of the default 2.5s, like TiVimate's quick channel changes.
-            DefaultLoadControl.Builder().setBufferDurationsMs(15_000, 50_000, 1_000, 2_000).build()
+            // Start after ~2.5s of video and, after a stall, wait for ~5s before carrying on, so a slow
+            // moment on the server doesn't turn into repeated spinning. (Was 1s/2s: quick, but no cushion.)
+            DefaultLoadControl.Builder().setBufferDurationsMs(15_000, 50_000, 2_500, 5_000).build()
         } else {
             // Movies/episodes: keep ~90s loaded ahead, topped up continuously (min == max). If the player
             // fills up and then stops reading for a minute or more, video servers close the idle connection,
@@ -160,7 +161,7 @@ class PlayerActivity : ComponentActivity() {
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
-                    liveRetries = 0; vodRetries = 0; everReady = true
+                    liveRetries = 0; vodRetries = 0; everReady = true; liveStarted = true
                     saver.removeCallbacks(showReconnecting)
                     if (quietReconnect) {
                         quietReconnect = false
@@ -191,6 +192,16 @@ class PlayerActivity : ComponentActivity() {
                     player.seekToDefaultPosition()
                     player.prepare()
                     return
+                }
+                // Live channel never started as a .ts stream: try this channel as HLS instead, and remember that.
+                if (liveIndex >= 0 && !liveStarted) {
+                    val ch = Session.channels.getOrNull(liveIndex)
+                    if (ch != null && ch.id !in hlsChannels) {
+                        hlsChannels += ch.id
+                        prefs.edit().putStringSet("live_hls_ids", hlsChannels.toSet()).apply()
+                        playLive(liveIndex, retry = true)
+                        return
+                    }
                 }
                 // Other live hiccups: quietly reconnect the channel a few times before showing anything.
                 if (liveIndex >= 0 && liveRetries < 3) {
@@ -289,9 +300,13 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private var liveRetries = 0
+    /** Set once the current channel has actually started playing. */
+    private var liveStarted = false
+    /** Channels that wouldn't play as a continuous .ts stream, so they use HLS (.m3u8) instead. */
+    private val hlsChannels by lazy { prefs.getStringSet("live_hls_ids", emptySet())!!.toMutableSet() }
 
     private fun playLive(index: Int, retry: Boolean = false) {
-        if (!retry) liveRetries = 0
+        if (!retry) { liveRetries = 0; liveStarted = false }
         val list = Session.channels
         val client = Session.client
         if (list.isEmpty() || client == null) {
@@ -304,7 +319,13 @@ class PlayerActivity : ComponentActivity() {
         switchJob?.cancel()
         switchJob = lifecycleScope.launch {
             val link = withContext(Dispatchers.IO) { runCatching { client.createLink("itv", ch.cmd, "", null) } }
-            link.onSuccess { play(it) }
+            // Live TV as one continuous MPEG-TS stream (what TiVimate uses for Xtream) rather than HLS,
+            // which polls a playlist for short chunks and spins whenever the server is slow to post one.
+            link.onSuccess {
+                val asTs = ch.id !in hlsChannels && it.endsWith(".m3u8")
+                asHls = false
+                play(if (asTs) it.removeSuffix(".m3u8") + ".ts" else it)
+            }
                 .onFailure { toast(it.message ?: "Couldn't start this channel") }
             // Show what's on now, once the guide answers.
             val now = withContext(Dispatchers.IO) { runCatching { client.nowNext(ch) }.getOrNull()?.firstOrNull() }
