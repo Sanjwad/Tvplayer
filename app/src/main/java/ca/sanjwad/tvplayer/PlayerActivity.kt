@@ -53,6 +53,10 @@ class PlayerActivity : ComponentActivity() {
     private var everReady = false
     /** Connection drops during this playback (quiet retries + reconnects), shown when you leave. */
     private var drops = 0
+    /** What the last drop was, so the exit message can say why. */
+    @Volatile private var lastDrop = ""
+    /** Set while quietly reconnecting a movie/episode, so the controls don't pop up. */
+    private var quietReconnect = false
     /** Only show "Reconnecting…" if a reconnect hasn't recovered within a couple of seconds. */
     private val showReconnecting = Runnable { toast("Reconnecting…") }
     /** Set when the address says .mp4/.mkv/.ts but the server actually sends an HLS playlist. */
@@ -138,6 +142,7 @@ class PlayerActivity : ComponentActivity() {
                 val base = super.getRetryDelayMsFor(info)
                 if (isLive || base == C.TIME_UNSET) return base
                 if (info.errorCount == 1) runOnUiThread { drops++ }
+                lastDrop = describe(info.exception)
                 return minOf(500L * info.errorCount, 3_000L)
             }
         }
@@ -150,6 +155,11 @@ class PlayerActivity : ComponentActivity() {
                 if (state == Player.STATE_READY) {
                     liveRetries = 0; vodRetries = 0; everReady = true
                     saver.removeCallbacks(showReconnecting)
+                    if (quietReconnect) {
+                        quietReconnect = false
+                        view.hideController()
+                        view.controllerAutoShow = true
+                    }
                 }
                 if (state == Player.STATE_READY && !resumed) {
                     resumed = true
@@ -208,15 +218,21 @@ class PlayerActivity : ComponentActivity() {
                 if (liveIndex < 0 && url != null && vodRetries < 5) {
                     vodRetries++
                     drops++
-                    val pos = player.currentPosition
+                    lastDrop = "${error.errorCodeName}: ${describe(error.cause ?: error)}"
+                    // Keep the last picture on screen and the controls hidden while we reconnect;
+                    // prepare() picks up from the current position with the same video.
+                    quietReconnect = true
+                    view.controllerAutoShow = false
+                    view.hideController()
                     saver.removeCallbacks(showReconnecting)
                     saver.postDelayed(showReconnecting, 2_000)
                     saver.postDelayed({
-                        play(url, keepFormat = true, startMs = pos)
+                        if (currentUrl == url) player.prepare()
                     }, if (vodRetries == 1) 300L else 1500L * (vodRetries - 1))
                     return
                 }
                 saver.removeCallbacks(showReconnecting)
+                if (quietReconnect) { quietReconnect = false; view.controllerAutoShow = true }
                 val log = synchronized(trail) { trail.takeLast(6).joinToString("\n") }
                 android.app.AlertDialog.Builder(this@PlayerActivity)
                     .setTitle("Playback problem")
@@ -230,6 +246,8 @@ class PlayerActivity : ComponentActivity() {
             player = this@PlayerActivity.player
             keepScreenOn = true
             setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
+            // Don't flash black when the player reconnects; keep the last frame until video resumes.
+            setKeepContentOnPlayerReset(true)
         }
         setContentView(view)
 
@@ -302,6 +320,18 @@ class PlayerActivity : ComponentActivity() {
         return super.dispatchKeyEvent(event)
     }
 
+    /** Short, readable reason for a dropped connection, e.g. "HTTP 416" or "SocketTimeoutException". */
+    private fun describe(e: Throwable): String {
+        var c: Throwable? = e
+        while (c != null) {
+            if (c is HttpDataSource.InvalidResponseCodeException) return "HTTP ${c.responseCode}"
+            c = c.cause
+        }
+        var root: Throwable = e
+        while (root.cause != null && root.cause !== root) root = root.cause!!
+        return root.javaClass.simpleName + (root.message?.take(60)?.let { " – $it" } ?: "")
+    }
+
     private var lastToast: Toast? = null
     private fun toast(msg: String) {
         lastToast?.cancel()
@@ -316,7 +346,7 @@ class PlayerActivity : ComponentActivity() {
         player.pause()
         // Testing aid: how many times the connection dropped (and was recovered) during this playback.
         if (liveIndex < 0 && drops > 0) {
-            Toast.makeText(applicationContext, "Connection dropped $drops× during playback (recovered)", Toast.LENGTH_LONG).show()
+            Toast.makeText(applicationContext, "Connection dropped $drops× (recovered)\nLast: $lastDrop", Toast.LENGTH_LONG).show()
             drops = 0
         }
     }
