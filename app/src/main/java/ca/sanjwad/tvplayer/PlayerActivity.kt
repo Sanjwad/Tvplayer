@@ -355,7 +355,7 @@ class PlayerActivity : ComponentActivity() {
         // Testing aid: how many times the connection dropped (and was recovered) during this playback.
         if (liveIndex < 0 && drops > 0) {
             Toast.makeText(applicationContext, "Connection dropped $drops× (recovered)\nFirst: $firstDrop\nLast: $lastDrop", Toast.LENGTH_LONG).show()
-            drops = 0; firstDrop = 
+            drops = 0; firstDrop = ""
         }
     }
 
