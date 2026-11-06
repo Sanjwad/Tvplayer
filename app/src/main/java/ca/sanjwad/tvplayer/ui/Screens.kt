@@ -243,6 +243,28 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
     }
 
     @Composable
+    fun xtreamFields() {
+        OutlinedTextField(
+            value = xtServer, onValueChange = { xtServer = it },
+            label = { Text("Server (e.g. http://xt.example.com) or full M3U link") },
+            singleLine = true, modifier = w.focusRequester(fr),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = xtUser, onValueChange = { xtUser = it.trim() },
+            label = { Text("Username") }, singleLine = true, modifier = w,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = xtPass, onValueChange = { xtPass = it.trim() },
+            label = { Text("Password") }, singleLine = true, modifier = w,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+        )
+    }
+
+    @Composable
     fun stalkerFields() {
         OutlinedTextField(
             value = stPortal, onValueChange = { stPortal = it.trim() },
@@ -301,27 +323,6 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
         }
     }
 
-    @Composable
-    fun xtreamFields() {
-        OutlinedTextField(
-            value = xtServer, onValueChange = { xtServer = it },
-            label = { Text("Server (e.g. http://xt.example.com) or full M3U link") },
-            singleLine = true, modifier = w.focusRequester(fr),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-        )
-        Spacer(Modifier.height(10.dp))
-        OutlinedTextField(
-            value = xtUser, onValueChange = { xtUser = it.trim() },
-            label = { Text("Username") }, singleLine = true, modifier = w,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-        )
-        Spacer(Modifier.height(10.dp))
-        OutlinedTextField(
-            value = xtPass, onValueChange = { xtPass = it.trim() },
-            label = { Text("Password") }, singleLine = true, modifier = w,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-        )
-    }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 48.dp, vertical = 32.dp),
