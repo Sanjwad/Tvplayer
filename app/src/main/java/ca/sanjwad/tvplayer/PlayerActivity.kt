@@ -261,7 +261,8 @@ class PlayerActivity : ComponentActivity() {
                     return
                 }
                 // Movie or episode blipped mid-stream: reconnect and carry on from the same point.
-                if (liveIndex < 0 && url != null && vodRetries < 5) {
+                // A 403 is a refusal, not a blip: retrying won't help, so say so straight away.
+                if (liveIndex < 0 && url != null && vodRetries < 5 && code != 403) {
                     vodRetries++
                     drops++
                     lastDrop = "${error.errorCodeName}: ${describe(error.cause ?: error)}"

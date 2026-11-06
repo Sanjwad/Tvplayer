@@ -1125,6 +1125,13 @@ fun PortalLogScreen(onClose: () -> Unit) {
         }
         Text("Newest first. Take a photo of this screen if something doesn't work.", fontSize = 13.sp, color = TextDim)
         Spacer(Modifier.height(10.dp))
+        val pinned = ca.sanjwad.tvplayer.stalker.PortalLog.pinned
+        if (pinned.isNotEmpty()) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color(0xFF3A2A00)).padding(10.dp)) {
+                pinned.forEach { Text(it, fontSize = 13.sp, color = Color(0xFFFFE08A), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
         if (lines.isEmpty()) Text("Nothing yet.", fontSize = 15.sp, color = TextDim)
         androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize()) {
             items(lines.size) { i ->

@@ -22,6 +22,9 @@ object PortalLog {
         while (lines.size > 200) lines.removeFirst()
     }
 
+    /** Short summary of the last play attempt, shown pinned at the top of the log. */
+    @Volatile var pinned: List<String> = emptyList()
+
     @Synchronized fun all(): List<String> = lines.toList()
     @Synchronized fun clear() = lines.clear()
 }
@@ -472,17 +475,85 @@ class StalkerClient(
         return cmds.distinct() to urls.distinct()
     }
 
-    private fun playFiles(movieId: String, seasonId: String, episodeId: String, skip: String, log: MutableList<String>): String? {
-        val (cmds, urls) = runCatching { fileCmds(movieId, seasonId, episodeId) }
-            .onFailure { log += "• file list: ${it.message.orEmpty()}" }
-            .getOrDefault(emptyList<String>() to emptyList())
-        if (cmds.isEmpty() && urls.isEmpty()) log += "• file list: (none)"
-        for (c in cmds.filter { it != skip }.take(4)) {
-            directUrl(c)?.let { return it }
-            requestLink("vod", c, "", log)?.let { return it }
+    /**
+     * Checks that the video server will actually serve [url] (not 403), the way the player will ask.
+     * Returns a short result like "200 video/mp2t" or "403".
+     */
+    private fun probe(url: String): Pair<Boolean, String> = try {
+        val req = Request.Builder().url(url)
+            .header("User-Agent", Net.UA)
+            .header("Range", "bytes=0-1023")
+            .build()
+        http.newCall(req).execute().use { r ->
+            val hops = generateSequence(r.priorResponse) { it.priorResponse }.toList().reversed().map { it.code }
+            val txt = (hops + r.code).joinToString("→") + " ${r.request.url.host}:${r.request.url.port} ${r.header("Content-Type").orEmpty()}"
+            (r.code in 200..299) to txt
         }
-        urls.firstNotNullOfOrNull { directUrl(it) }?.let { log += "• using the file's own address"; return it }
-        return null
+    } catch (e: Exception) {
+        false to "${e.javaClass.simpleName} ${e.message.orEmpty()}"
+    }
+
+    /** create_link for [cmd]; returns the address the portal gave back, or null. */
+    private fun linkFor(cmd: String, series: String = ""): String? {
+        val reply = runCatching {
+            call(mapOf("type" to "vod", "action" to "create_link", "cmd" to cmd, "series" to series,
+                "forced_storage" to "undefined", "disable_ad" to "0", "download" to "0"))
+        }.getOrNull() ?: return null
+        val js = reply.opt("js")
+        val raw = when (js) { is JSONObject -> js.optString("cmd").clean(); is String -> js; else -> "" }
+        return directUrl(raw)
+    }
+
+    private fun playFiles(movieId: String, seasonId: String, episodeId: String, skip: String, log: MutableList<String>): String? {
+        val rows = runCatching {
+            allPages(mapOf("type" to "vod", "action" to "get_ordered_list", "movie_id" to movieId,
+                "season_id" to seasonId, "episode_id" to episodeId), maxPages = 2)
+        }.onFailure { log += "• file list: ${it.message.orEmpty()}" }.getOrDefault(emptyList())
+
+        // Every way a box might ask for this title's video, in order.
+        val tries = mutableListOf<Pair<String, () -> String?>>()
+        for (row in rows) {
+            val files = row.optJSONArray("files")?.let { arr -> (0 until arr.length()).mapNotNull { arr.optJSONObject(it) } }.orEmpty() + row
+            for (f in files) {
+                val id = f.optString("id").clean()
+                val url = f.optString("url").clean()
+                val cmd = f.optString("cmd").clean()
+                if (cmd.isNotBlank() && cmd != skip) tries += "cmd $cmd" to { directUrl(cmd) ?: linkFor(cmd) }
+                if (id.isNotBlank() && f.has("video_id")) {
+                    tries += "file_$id" to { linkFor("/media/file_$id.mpg") }
+                    tries += "file_$id+series" to { linkFor("/media/file_$id.mpg", episodeId.takeIf { it != "0" }.orEmpty()) }
+                }
+                if (url.startsWith("http", true)) {
+                    tries += "link(url)" to { linkFor(url) }
+                    tries += "link(ffmpeg url)" to { linkFor("ffmpeg $url") }
+                    tries += "file url as is" to { url }
+                }
+            }
+        }
+        if (tries.isEmpty()) { log += "• file list: (none)"; PortalLog.pinned = listOf("PLAY: no video files listed"); return null }
+
+        val summary = mutableListOf("PLAY $movieId/$seasonId/$episodeId — tried in order:")
+        var firstUrl: String? = null
+        val seen = HashSet<String>()
+        for ((name, get) in tries) {
+            val u = runCatching { get() }.getOrNull()
+            if (u == null) { summary += "  $name → portal gave no link"; continue }
+            if (!seen.add(u)) { summary += "  $name → same link as before"; continue }
+            if (firstUrl == null) firstUrl = u
+            val (ok, res) = probe(u)
+            summary += "  $name → ${u.take(70)}  ⇒ $res"
+            if (ok) {
+                summary += "  ✓ using $name"
+                PortalLog.pinned = summary
+                summary.forEach { PortalLog.add(it) }
+                return u
+            }
+        }
+        summary += "  ✗ nothing worked; playing the first link anyway"
+        PortalLog.pinned = summary
+        summary.forEach { PortalLog.add(it) }
+        log += summary.drop(1)
+        return firstUrl
     }
 
     override fun createLink(type: String, cmd: String, series: String, movieId: String?): String {
