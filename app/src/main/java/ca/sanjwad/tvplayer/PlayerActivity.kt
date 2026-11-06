@@ -55,6 +55,7 @@ class PlayerActivity : ComponentActivity() {
     private var drops = 0
     /** What the last drop was, so the exit message can say why. */
     @Volatile private var lastDrop = ""
+    private var firstDrop = ""
     /** Set while quietly reconnecting a movie/episode, so the controls don't pop up. */
     private var quietReconnect = false
     /** Only show "Reconnecting…" if a reconnect hasn't recovered within a couple of seconds. */
@@ -129,8 +130,10 @@ class PlayerActivity : ComponentActivity() {
             // Start playing after ~1s of video instead of the default 2.5s, like TiVimate's quick channel changes.
             DefaultLoadControl.Builder().setBufferDurationsMs(15_000, 50_000, 1_000, 2_000).build()
         } else {
-            // Movies/episodes are files: keep 1–3 minutes loaded ahead so short drops never reach the screen.
-            DefaultLoadControl.Builder().setBufferDurationsMs(60_000, 180_000, 1_500, 3_000).build()
+            // Movies/episodes: keep ~90s loaded ahead, topped up continuously (min == max). If the player
+            // fills up and then stops reading for a minute or more, video servers close the idle connection,
+            // which is what caused the drops; live TV never gets ahead, which is why it was fine.
+            DefaultLoadControl.Builder().setBufferDurationsMs(90_000, 90_000, 1_500, 3_000).build()
         }
         // Movies/episodes: when the connection drops, retry quietly many times, picking the file up
         // from exactly where it stopped, while playback carries on from what's already loaded.
@@ -141,9 +144,13 @@ class PlayerActivity : ComponentActivity() {
             override fun getRetryDelayMsFor(info: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
                 val base = super.getRetryDelayMsFor(info)
                 if (isLive || base == C.TIME_UNSET) return base
-                if (info.errorCount == 1) runOnUiThread { drops++ }
-                lastDrop = describe(info.exception)
-                return minOf(500L * info.errorCount, 3_000L)
+                val why = describe(info.exception)
+                if (info.errorCount == 1) runOnUiThread { drops++; if (firstDrop.isEmpty()) firstDrop = why }
+                lastDrop = why
+                // 403 on a reconnect usually means the server still counts the old connection; give it time to let go.
+                val code = (info.exception as? HttpDataSource.InvalidResponseCodeException)?.responseCode ?: 0
+                return if (code in 400..499) minOf(2_000L * info.errorCount, 8_000L)
+                else minOf(500L * info.errorCount, 3_000L)
             }
         }
         player = ExoPlayer.Builder(this)
@@ -219,6 +226,7 @@ class PlayerActivity : ComponentActivity() {
                     vodRetries++
                     drops++
                     lastDrop = "${error.errorCodeName}: ${describe(error.cause ?: error)}"
+                    if (firstDrop.isEmpty()) firstDrop = lastDrop
                     // Keep the last picture on screen and the controls hidden while we reconnect;
                     // prepare() picks up from the current position with the same video.
                     quietReconnect = true
@@ -346,8 +354,8 @@ class PlayerActivity : ComponentActivity() {
         player.pause()
         // Testing aid: how many times the connection dropped (and was recovered) during this playback.
         if (liveIndex < 0 && drops > 0) {
-            Toast.makeText(applicationContext, "Connection dropped $drops× (recovered)\nLast: $lastDrop", Toast.LENGTH_LONG).show()
-            drops = 0
+            Toast.makeText(applicationContext, "Connection dropped $drops× (recovered)\nFirst: $firstDrop\nLast: $lastDrop", Toast.LENGTH_LONG).show()
+            drops = 0; firstDrop = 
         }
     }
 
