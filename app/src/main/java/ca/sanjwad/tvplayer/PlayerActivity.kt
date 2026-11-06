@@ -111,7 +111,13 @@ class PlayerActivity : ComponentActivity() {
                 val ua = if (isLive || chain.request().url.host == portalHost || client is ca.sanjwad.tvplayer.stalker.StalkerClient) Net.UA else Net.VIDEO_UA
                 val b = chain.request().newBuilder().header("User-Agent", ua)
                 if (chain.request().url.host == portalHost) portalHeaders.forEach { (k, v) -> b.header(k, v) }
-                val resp = chain.proceed(b.build())
+                val req = b.build()
+                val t0 = System.currentTimeMillis()
+                val resp = try { chain.proceed(req) } catch (e: java.io.IOException) {
+                    ca.sanjwad.tvplayer.stalker.PortalLog.add("player  ${req.url.host}:${req.url.port}${req.url.encodedPath.take(40)} → " +
+                        "${e.javaClass.simpleName} ${e.message.orEmpty()} after ${(System.currentTimeMillis() - t0) / 1000}s")
+                    throw e
+                }
                 val u = resp.request.url
                 var line = "${resp.code} ${u.host}:${u.port}${u.encodedPath.take(40)}"
                 resp.priorResponse?.let { pr -> line = "${pr.code}→" + line }
@@ -121,6 +127,7 @@ class PlayerActivity : ComponentActivity() {
                     line += "\n   " + (hdrs + listOfNotNull(body.ifBlank { null })).joinToString(" | ")
                 }
                 trail += line
+                ca.sanjwad.tvplayer.stalker.PortalLog.add("player  $line  ${resp.header("Content-Type").orEmpty()} ${resp.header("Content-Length").orEmpty()}b (${System.currentTimeMillis() - t0}ms)")
                 if (trail.size > 12) trail.removeAt(0)
                 resp
             }
@@ -188,6 +195,7 @@ class PlayerActivity : ComponentActivity() {
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                ca.sanjwad.tvplayer.stalker.PortalLog.add("player ✗ ${error.errorCodeName}: ${describe(error.cause ?: error)}")
                 // Live TV fell behind after a stutter: jump back to live, no message.
                 if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
                     player.seekToDefaultPosition()
@@ -292,6 +300,7 @@ class PlayerActivity : ComponentActivity() {
     private fun play(url: String, keepFormat: Boolean = false, startMs: Long = 0) {
         if (url != currentUrl && !keepFormat && liveIndex < 0) asHls = false
         currentUrl = url
+        ca.sanjwad.tvplayer.stalker.PortalLog.add("player ▶ ${url.take(300)}")
         val item = MediaItem.Builder().setUri(url)
             .apply { if (asHls) setMimeType(MimeTypes.APPLICATION_M3U8) }
             .build()
