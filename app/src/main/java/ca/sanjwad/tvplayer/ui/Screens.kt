@@ -384,26 +384,6 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
     var importing by remember { mutableStateOf(false) }
     val importChoice = remember { kotlinx.coroutines.CompletableDeferred<Boolean>() }
 
-    importOffer?.let { old ->
-        if (importing) { CenterMessage("Bringing over your lists…", "Matching titles and channels on the new server.", loading = true); return }
-        val yes = remember { FocusRequester() }
-        LaunchedEffect(Unit) { focusSoon(yes) }
-        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text("New login", fontSize = 26.sp, color = Color.White, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(8.dp))
-            Text("Bring over your My List, favourite channels, watched episodes and hidden categories from your previous login?",
-                fontSize = 16.sp, color = TextDim, modifier = Modifier.width(620.dp))
-            Spacer(Modifier.height(4.dp))
-            Text("Previous login: ${old.label.substringBefore("|")}", fontSize = 13.sp, color = TextDim, modifier = Modifier.width(620.dp))
-            Spacer(Modifier.height(22.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TvButton("Yes, bring them over", onClick = { importChoice.complete(true) }, modifier = Modifier.focusRequester(yes))
-                TvButton("No, start fresh", onClick = { importChoice.complete(false) })
-            }
-        }
-        return
-    }
-
     LaunchedEffect(attempt) {
         error = null
         val r = withContext(Dispatchers.IO) {
@@ -459,6 +439,29 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
             .onFailure { error = it.message ?: "Couldn't connect." }
     }
     LaunchedEffect(error) { if (error != null) focusSoon(fr) }
+
+    // Drawn after the LaunchedEffects so returning early never removes (and cancels)
+    // the connect coroutine that is waiting on importChoice.
+    importOffer?.let { old ->
+        if (importing) { CenterMessage("Bringing over your lists…", "Matching titles and channels on the new server.", loading = true); return }
+        val yes = remember { FocusRequester() }
+        LaunchedEffect(Unit) { focusSoon(yes) }
+        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Text("New login", fontSize = 26.sp, color = Color.White, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            Text("Bring over your My List, favourite channels, watched episodes and hidden categories from your previous login?",
+                fontSize = 16.sp, color = TextDim, modifier = Modifier.width(620.dp))
+            Spacer(Modifier.height(4.dp))
+            Text("Previous login: ${old.label.substringBefore("|")}", fontSize = 13.sp, color = TextDim, modifier = Modifier.width(620.dp))
+            Spacer(Modifier.height(22.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TvButton("Yes, bring them over", onClick = { importChoice.complete(true) }, modifier = Modifier.focusRequester(yes))
+                TvButton("No, start fresh", onClick = { importChoice.complete(false) })
+            }
+        }
+        return
+    }
+
 
     val e = error
     if (e == null) {
