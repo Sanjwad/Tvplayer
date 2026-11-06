@@ -369,6 +369,11 @@ class StalkerClient(
                 }
             } else null
             Season(s.optString("id"), s.optString("name"), eps)
+        }.map { s ->
+            // Seasons without an episode list: fetch the episodes now, so "Play next" and the
+            // episode numbers work (otherwise every show looks "Caught up").
+            if (s.episodes != null) s
+            else s.copy(episodes = runCatching { episodes(type, item, s) }.getOrDefault(emptyList()))
         }
     }
 
@@ -376,12 +381,13 @@ class StalkerClient(
         season.episodes ?: allPages(
             mapOf("type" to type, "action" to "get_ordered_list", "movie_id" to item.id,
                 "season_id" to season.id, "episode_id" to "0")
-        ).map {
+        ).mapIndexed { i, it ->
+            val n = it.optString("series_number").clean().ifBlank { (i + 1).toString() }
             Episode(
                 title = it.optString("name"),
-                number = it.optString("series_number").clean(),
+                number = n,
                 cmd = it.optString("cmd"),
-                seriesParam = "",
+                seriesParam = n,
             )
         }
 
@@ -463,6 +469,8 @@ class StalkerClient(
         if (t != "itv") directUrl(cmd)?.let { return it }
 
         requestLink(t, cmd, series, log)?.let { return it }
+        // Portals differ on episodes: some want the episode number, some only the episode's own cmd.
+        if (series.isNotBlank()) requestLink(t, cmd, "", log)?.let { return it }
 
         if (t == "vod" && movieId != null && series.isBlank()) {
             val files = runCatching { movieFileCmds(movieId) }
@@ -473,7 +481,11 @@ class StalkerClient(
             files.firstNotNullOfOrNull { directUrl(it) }?.let { return it }
             for (f in files.take(3)) requestLink(t, f, "", log)?.let { return it }
         }
-        if (type == "series") requestLink("series", cmd, series, log)?.let { return it }
+        // Episodes from a portal's own series section may need type=series instead.
+        if (type == "series" || series.isNotBlank()) {
+            requestLink("series", cmd, series, log)?.let { return it }
+            if (series.isNotBlank()) requestLink("series", cmd, "", log)?.let { return it }
+        }
 
         if (t == "itv") directUrl(cmd)?.let { return it }
         throw IOException(

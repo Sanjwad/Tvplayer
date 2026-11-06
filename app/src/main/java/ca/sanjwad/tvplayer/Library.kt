@@ -214,7 +214,9 @@ object Library {
         sp?.edit()?.putString("watch_$key", o.toString())?.apply()
     }
 
-    fun seasonNumber(s: Season, index: Int) = s.id.toIntOrNull() ?: Regex("\\d+").find(s.name)?.value?.toIntOrNull() ?: (index + 1)
+    // Stalker season ids are portal record ids (e.g. 48213), so a small id or the number in the name wins.
+    fun seasonNumber(s: Season, index: Int) = s.id.toIntOrNull()?.takeIf { it in 0..200 }
+        ?: Regex("\\d+").find(s.name)?.value?.toIntOrNull() ?: (index + 1)
     fun episodeNumber(e: Episode, index: Int) = e.number.toIntOrNull() ?: (index + 1)
 
     /** The first episode after the furthest one started, or the very first if none. Null = caught up. */

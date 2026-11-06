@@ -107,7 +107,8 @@ class PlayerActivity : ComponentActivity() {
             // Movies/episodes: give up on a stalled connection quickly; it's resumed from the same byte.
             .readTimeout(if (isLive) 30 else 12, TimeUnit.SECONDS)
             .addInterceptor { chain ->
-                val ua = if (isLive || chain.request().url.host == portalHost) Net.UA else Net.VIDEO_UA
+                // Stalker video servers expect the MAG box's User-Agent for movies too.
+                val ua = if (isLive || chain.request().url.host == portalHost || client is ca.sanjwad.tvplayer.stalker.StalkerClient) Net.UA else Net.VIDEO_UA
                 val b = chain.request().newBuilder().header("User-Agent", ua)
                 if (chain.request().url.host == portalHost) portalHeaders.forEach { (k, v) -> b.header(k, v) }
                 val resp = chain.proceed(b.build())
