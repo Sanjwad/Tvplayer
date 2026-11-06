@@ -155,8 +155,10 @@ class StalkerClient(
 
     private fun profileParams(): Map<String, String> {
         val sn = serial.trim().ifBlank { md5(mac).take(13) }
-        val dev = deviceId.trim().ifBlank { md5(mac + "device") }
-        val dev2 = deviceId2.trim().ifBlank { dev }
+        // Blank device IDs are sent blank, like TiVimate does when they're "Not set": portals that
+        // verify devices compare these with what the box sent the first time.
+        val dev = deviceId.trim()
+        val dev2 = deviceId2.trim()
         return mapOf(
             "type" to "stb", "action" to "get_profile", "hd" to "1",
             "ver" to "ImageDescription: 0.2.18-r23-250; ImageDate: Thu Sep 13 11:31:16 EEST 2018; PORTAL version: 5.6.2; API Version: JS API version: 343; STB API version: 146; Player Engine version: 0x58c",
@@ -187,7 +189,14 @@ class StalkerClient(
                 val profile = request(base, profileParams()).optJSONObject("js")
                 // A profile with "status": 1 (or a block message) means the MAC isn't active.
                 val blocked = profile?.optString("block_msg").orEmpty()
-                if (blocked.isNotBlank() && blocked != "null") throw IOException("The portal says: $blocked")
+                if (blocked.isNotBlank() && blocked != "null") {
+                    val text = blocked.replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
+                        .replace(Regex("<[^>]+>"), "").lines().map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
+                    val hint = if (text.contains("verification", true))
+                        "\n\nThis usually means the serial number or device ID doesn't match what this MAC first logged in with. " +
+                            "Copy them exactly from TiVimate (Settings → Playlists → Stalker Portal parameters)." else ""
+                    throw IOException("The portal says:\n$text$hint")
+                }
                 runCatching {
                     val acc = request(base, mapOf("type" to "account_info", "action" to "get_main_info")).optJSONObject("js")
                     expiry = acc?.optString("phone").orEmpty().takeIf { it.isNotBlank() && it != "null" }
