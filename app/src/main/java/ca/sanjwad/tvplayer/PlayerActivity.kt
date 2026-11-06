@@ -113,10 +113,29 @@ class PlayerActivity : ComponentActivity() {
                 if (chain.request().url.host == portalHost) portalHeaders.forEach { (k, v) -> b.header(k, v) }
                 val req = b.build()
                 val t0 = System.currentTimeMillis()
-                val resp = try { chain.proceed(req) } catch (e: java.io.IOException) {
+                var resp = try { chain.proceed(req) } catch (e: java.io.IOException) {
                     ca.sanjwad.tvplayer.stalker.PortalLog.add("player  ${req.url.host}:${req.url.port}${req.url.encodedPath.take(40)} → " +
                         "${e.javaClass.simpleName} ${e.message.orEmpty()} after ${(System.currentTimeMillis() - t0) / 1000}s")
                     throw e
+                }
+                // Stalker video server refused us: try again as a MAG box (portal cookie/headers), then as VLC.
+                if (resp.code == 403 && client is ca.sanjwad.tvplayer.stalker.StalkerClient && req.url.host != portalHost) {
+                    val variants = listOf(
+                        "MAG headers" to req.newBuilder().header("User-Agent", Net.UA).apply {
+                            portalHeaders.forEach { (k, v) -> if (k != "Authorization") header(k, v) }
+                        }.build(),
+                        "MAG headers + token" to req.newBuilder().header("User-Agent", Net.UA).apply {
+                            portalHeaders.forEach { (k, v) -> header(k, v) }
+                        }.build(),
+                        "VLC" to req.newBuilder().header("User-Agent", Net.VIDEO_UA).build(),
+                    )
+                    for ((name, r2) in variants) {
+                        ca.sanjwad.tvplayer.stalker.PortalLog.add("player  403 → retrying with $name")
+                        resp.close()
+                        resp = chain.proceed(r2)
+                        ca.sanjwad.tvplayer.stalker.PortalLog.add("player  $name → ${resp.code}")
+                        if (resp.code != 403) break
+                    }
                 }
                 val u = resp.request.url
                 var line = "${resp.code} ${u.host}:${u.port}${u.encodedPath.take(40)}"
