@@ -479,19 +479,40 @@ class StalkerClient(
      * Checks that the video server will actually serve [url] (not 403), the way the player will ask.
      * Returns a short result like "200 video/mp2t" or "403".
      */
-    private fun probe(url: String): Pair<Boolean, String> = try {
+    private fun probe(url: String, ua: String? = Net.UA): Pair<Boolean, String> = try {
         val req = Request.Builder().url(url)
-            .header("User-Agent", Net.UA)
-            .header("Range", "bytes=0-1023")
+            .apply { if (ua != null) header("User-Agent", ua) else removeHeader("User-Agent") }
             .build()
         http.newCall(req).execute().use { r ->
             val hops = generateSequence(r.priorResponse) { it.priorResponse }.toList().reversed().map { it.code }
-            val txt = (hops + r.code).joinToString("→") + " ${r.request.url.host}:${r.request.url.port} ${r.header("Content-Type").orEmpty()}"
+            var txt = (hops + r.code).joinToString("→") + " ${r.request.url.host}:${r.request.url.port} ${r.header("Content-Type").orEmpty()}"
+            if (r.code >= 400) {
+                // The refusal page's visible text often says why (IP, user agent, expired…).
+                val body = runCatching { r.peekBody(4000).string() }.getOrDefault("")
+                    .replace(Regex("(?s)<style.*?</style>|<script.*?</script>|<head.*?</head>"), " ")
+                    .replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim()
+                if (body.isNotBlank()) txt += " \"${body.take(160)}\""
+            }
             (r.code in 200..299) to txt
         }
     } catch (e: Exception) {
         false to "${e.javaClass.simpleName} ${e.message.orEmpty()}"
     }
+
+    /** User-Agent the video server accepted on the last successful probe (null = no header). */
+    @Volatile var videoUa: String? = Net.UA
+        private set
+
+    private val uaCandidates: List<Pair<String, String?>> = listOf(
+        "MAG" to Net.UA,
+        "Android ExoPlayer" to "ExoPlayerLib/2.19.1",
+        "Android system" to "Dalvik/2.1.0 (Linux; U; Android 11; SHIELD Android TV Build/RQ1A.210105.003)",
+        "TiviMate" to "TiviMate/5.1.6 (Linux; Android 11) ExoPlayerLib/2.19.1",
+        "okhttp" to "okhttp/4.12.0",
+        "Chrome" to "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        "VLC" to Net.VIDEO_UA,
+        "no user agent" to null,
+    )
 
     /** create_link for [cmd]; returns the address the portal gave back, or null. */
     private fun linkFor(cmd: String, series: String = ""): String? {
@@ -540,13 +561,18 @@ class StalkerClient(
             if (u == null) { summary += "  $name → portal gave no link"; continue }
             if (!seen.add(u)) { summary += "  $name → same link as before"; continue }
             if (firstUrl == null) firstUrl = u
-            val (ok, res) = probe(u)
-            summary += "  $name → ${u.take(70)}  ⇒ $res"
-            if (ok) {
-                summary += "  ✓ using $name"
-                PortalLog.pinned = summary
-                summary.forEach { PortalLog.add(it) }
-                return u
+            summary += "  $name → ${u.take(70)}"
+            // Same link, different identities: the video server may only let some players in.
+            for ((uaName, ua) in uaCandidates) {
+                val (ok, res) = probe(u, ua)
+                summary += "     as $uaName ⇒ $res"
+                if (ok) {
+                    videoUa = ua
+                    summary += "  ✓ using $name as $uaName"
+                    PortalLog.pinned = summary
+                    summary.forEach { PortalLog.add(it) }
+                    return u
+                }
             }
         }
         summary += "  ✗ nothing worked; playing the first link anyway"

@@ -108,8 +108,13 @@ class PlayerActivity : ComponentActivity() {
             .readTimeout(if (isLive) 30 else 12, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 // Stalker video servers expect the MAG box's User-Agent for movies too.
-                val ua = if (isLive || chain.request().url.host == portalHost || client is ca.sanjwad.tvplayer.stalker.StalkerClient) Net.UA else Net.VIDEO_UA
-                val b = chain.request().newBuilder().header("User-Agent", ua)
+                val st = client as? ca.sanjwad.tvplayer.stalker.StalkerClient
+                val ua: String? = when {
+                    isLive || chain.request().url.host == portalHost -> Net.UA
+                    st != null -> st.videoUa // whichever identity the video server accepted when we tested the link
+                    else -> Net.VIDEO_UA
+                }
+                val b = chain.request().newBuilder().apply { if (ua != null) header("User-Agent", ua) else removeHeader("User-Agent") }
                 if (chain.request().url.host == portalHost) portalHeaders.forEach { (k, v) -> b.header(k, v) }
                 val req = b.build()
                 val t0 = System.currentTimeMillis()
