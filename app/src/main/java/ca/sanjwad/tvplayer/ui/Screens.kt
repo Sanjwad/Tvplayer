@@ -551,6 +551,8 @@ fun LiveScreen(s: LiveState) {
     val ctx = LocalContext.current
     // Start with an empty search box next time.
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { s.query = ""; if (s.genre == SEARCH_ID) s.genre = "*" } }
+    // Always open on Favourites when there are any.
+    LaunchedEffect(Unit) { if (Library.favourites.isNotEmpty()) s.genre = FAV_ID }
     LaunchedEffect(Unit) {
         if (!s.loaded && !s.loading) {
             s.loading = true; s.error = null
