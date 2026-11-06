@@ -14,7 +14,8 @@ import java.util.concurrent.TimeUnit
 
 /** Checks GitHub for a newer build and installs it. */
 object Updater {
-    private const val BASE = "https://github.com/Sanjwad/Tvplayer/releases/latest/download"
+    private val BASE = if (BuildConfig.UPDATE_TAG == "latest") "https://github.com/Sanjwad/Tvplayer/releases/latest/download"
+        else "https://github.com/Sanjwad/Tvplayer/releases/download/${BuildConfig.UPDATE_TAG}"
 
     data class Update(val versionCode: Int, val versionName: String)
 

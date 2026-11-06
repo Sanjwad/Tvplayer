@@ -322,7 +322,7 @@ class PlayerActivity : ComponentActivity() {
             // Live TV as one continuous MPEG-TS stream (what TiVimate uses for Xtream) rather than HLS,
             // which polls a playlist for short chunks and spins whenever the server is slow to post one.
             link.onSuccess {
-                val asTs = ch.id !in hlsChannels && it.endsWith(".m3u8")
+                val asTs = client is ca.sanjwad.tvplayer.stalker.XtreamClient && ch.id !in hlsChannels && it.endsWith(".m3u8")
                 asHls = false
                 play(if (asTs) it.removeSuffix(".m3u8") + ".ts" else it)
             }

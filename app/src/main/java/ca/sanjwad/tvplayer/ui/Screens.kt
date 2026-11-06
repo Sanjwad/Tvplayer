@@ -168,6 +168,14 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
     var xtServer by remember { mutableStateOf(prefs.xtServer) }
     var xtUser by remember { mutableStateOf(prefs.xtUser) }
     var xtPass by remember { mutableStateOf(prefs.xtPass) }
+    var stalker by remember { mutableStateOf(prefs.isStalker) }
+    var stPortal by remember { mutableStateOf(prefs.stPortal) }
+    var stMac by remember { mutableStateOf(prefs.stMac) }
+    var stSerial by remember { mutableStateOf(prefs.stSerial) }
+    var stDev by remember { mutableStateOf(prefs.stDeviceId) }
+    var stDev2 by remember { mutableStateOf(prefs.stDeviceId2) }
+    var stMore by remember { mutableStateOf(prefs.stSerial.isNotBlank() || prefs.stDeviceId.isNotBlank()) }
+    var showLog by remember { mutableStateOf(false) }
     var tmdbKey by remember { mutableStateOf(prefs.tmdbKey) }
     var omdbKey by remember { mutableStateOf(prefs.omdbKey) }
     var err by remember { mutableStateOf<String?>(null) }
@@ -177,6 +185,12 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
     var tmdbSaved by remember { mutableStateOf(false) }
     var startLast by remember { mutableStateOf(prefs.startOnLastChannel) }
     if (hasSaved) BackHandler { if (editing) { editing = false; err = null } else onCancel() }
+
+    if (showLog) {
+        BackHandler { showLog = false }
+        PortalLogScreen { showLog = false }
+        return
+    }
 
     // Category editor, opened from the Categories section below.
     var managing by remember { mutableStateOf<String?>(null) }
@@ -204,17 +218,91 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
     LaunchedEffect(editing) { focusSoon(fr) }
 
     fun save() {
+        if (stalker) {
+            var mac = stMac.trim().uppercase().replace("-", ":")
+            if (Regex("^[0-9A-F]{12}$").matches(mac)) mac = mac.chunked(2).joinToString(":")
+            stMac = mac
+            when {
+                stPortal.isBlank() -> err = "Enter the portal address."
+                !ca.sanjwad.tvplayer.stalker.StalkerClient.isValidMac(mac) -> err = "The MAC address should look like 00:1A:79:12:34:56."
+                else -> {
+                    prefs.stPortal = stPortal.trim(); prefs.stMac = mac
+                    prefs.stSerial = stSerial.trim(); prefs.stDeviceId = stDev.trim(); prefs.stDeviceId2 = stDev2.trim()
+                    prefs.loginType = "stalker"; onSaved()
+                }
+            }
+            return
+        }
         var srv = xtServer.trim(); var u = xtUser; var pw = xtPass
         XtreamClient.parseM3u(srv)?.let { (a, b, c) -> srv = a; u = b; pw = c; xtServer = a; xtUser = b; xtPass = c }
         when {
             srv.isBlank() -> err = "Enter the server address."
             u.isBlank() || pw.isBlank() -> err = "Enter the username and password."
-            else -> { prefs.xtServer = srv; prefs.xtUser = u; prefs.xtPass = pw; onSaved() }
+            else -> { prefs.xtServer = srv; prefs.xtUser = u; prefs.xtPass = pw; prefs.loginType = "xtream"; onSaved() }
+        }
+    }
+
+    @Composable
+    fun stalkerFields() {
+        OutlinedTextField(
+            value = stPortal, onValueChange = { stPortal = it.trim() },
+            label = { Text("Portal address (e.g. http://portal.example.com/c/)") },
+            singleLine = true, modifier = w.focusRequester(fr),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = stMac, onValueChange = { stMac = it.trim() },
+            label = { Text("MAC address (00:1A:79:…)") }, singleLine = true, modifier = w,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+        )
+        Spacer(Modifier.height(10.dp))
+        FocusBox(onClick = { stMore = !stMore }, modifier = w, shape = RoundedCornerShape(8.dp)) {
+            Text((if (stMore) "▲ " else "▼ ") + "Serial number and device ID (only if your provider asks)",
+                Modifier.padding(horizontal = 12.dp, vertical = 10.dp), fontSize = 14.sp, color = TextDim)
+        }
+        if (stMore) {
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(value = stSerial, onValueChange = { stSerial = it.trim() }, label = { Text("Serial number") },
+                singleLine = true, modifier = w, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii))
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(value = stDev, onValueChange = { stDev = it.trim() }, label = { Text("Device ID") },
+                singleLine = true, modifier = w, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii))
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(value = stDev2, onValueChange = { stDev2 = it.trim() }, label = { Text("Device ID 2") },
+                singleLine = true, modifier = w, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii))
         }
     }
 
     @Composable
     fun loginFields() {
+        Row(w, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            listOf(false to "Xtream login", true to "Stalker portal (MAC)").forEach { (st, label) ->
+                FocusBox(onClick = { stalker = st; err = null }, selected = stalker == st, shape = RoundedCornerShape(8.dp)) {
+                    Text(label, Modifier.padding(horizontal = 16.dp, vertical = 10.dp), fontSize = 15.sp,
+                        color = Color.White, fontWeight = if (stalker == st) FontWeight.Bold else FontWeight.Normal)
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        if (stalker) stalkerFields() else xtreamFields()
+        err?.let {
+            Spacer(Modifier.height(10.dp))
+            Text(it, color = ErrorRed, fontSize = 15.sp)
+        }
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TvButton("Save and connect", onClick = { save() })
+            if (hasSaved) TvButton("Cancel", onClick = {
+                editing = false; err = null
+                xtServer = prefs.xtServer; xtUser = prefs.xtUser; xtPass = prefs.xtPass
+                stalker = prefs.isStalker; stPortal = prefs.stPortal; stMac = prefs.stMac
+            })
+        }
+    }
+
+    @Composable
+    fun xtreamFields() {
         OutlinedTextField(
             value = xtServer, onValueChange = { xtServer = it },
             label = { Text("Server (e.g. http://xt.example.com) or full M3U link") },
@@ -233,18 +321,6 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
             label = { Text("Password") }, singleLine = true, modifier = w,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
         )
-        err?.let {
-            Spacer(Modifier.height(10.dp))
-            Text(it, color = ErrorRed, fontSize = 15.sp)
-        }
-        Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TvButton("Save and connect", onClick = { save() })
-            if (hasSaved) TvButton("Cancel", onClick = {
-                editing = false; err = null
-                xtServer = prefs.xtServer; xtUser = prefs.xtUser; xtPass = prefs.xtPass
-            })
-        }
     }
 
     Column(
@@ -256,7 +332,7 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
             Spacer(Modifier.height(40.dp))
             Logo(34.sp)
             Spacer(Modifier.height(8.dp))
-            Text("Enter the Xtream login from your provider", fontSize = 18.sp, color = TextDim)
+            Text("Enter the login from your provider", fontSize = 18.sp, color = TextDim)
             Spacer(Modifier.height(24.dp))
             loginFields()
             return@Column
@@ -272,14 +348,19 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
             if (!editing) {
                 val exp = (Session.client as? XtreamClient)?.expiry?.toLongOrNull()?.let {
                     java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(it * 1000))
-                }
-                Text(prefs.xtServer.removePrefix("http://").removePrefix("https://"), fontSize = 18.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                } ?: (Session.client as? ca.sanjwad.tvplayer.stalker.StalkerClient)?.expiry?.takeIf { it.isNotBlank() }
+                val server = if (prefs.isStalker) prefs.stPortal else prefs.xtServer
+                Text(server.removePrefix("http://").removePrefix("https://"), fontSize = 18.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(4.dp))
-                Text("Username: ${prefs.xtUser}    ·    Password: ••••••", fontSize = 14.sp, color = TextDim)
+                Text(if (prefs.isStalker) "Stalker portal    ·    MAC: ${prefs.stMac}" else "Username: ${prefs.xtUser}    ·    Password: ••••••",
+                    fontSize = 14.sp, color = TextDim)
                 Text(if (Session.client != null) "Connected" + (exp?.let { "  ·  subscription ends $it" } ?: "") else "Not connected",
                     fontSize = 14.sp, color = if (Session.client != null) Accent else ErrorRed)
                 Spacer(Modifier.height(14.dp))
-                TvButton("Change login details", onClick = { editing = true }, modifier = Modifier.focusRequester(fr))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TvButton("Change login details", onClick = { editing = true }, modifier = Modifier.focusRequester(fr))
+                    if (prefs.isStalker) TvButton("Portal log", onClick = { showLog = true })
+                }
             } else {
                 Text("Change login details", fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
                 Text("Saving reconnects with the new details. Favourites and My List are kept per login.", fontSize = 13.sp, color = TextDim)
@@ -363,7 +444,7 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
 
         // ---- About
         Spacer(Modifier.height(28.dp))
-        Text("Sanj TV  ·  build ${ca.sanjwad.tvplayer.BuildConfig.VERSION_CODE}", fontSize = 13.sp, color = TextDim, modifier = w)
+        Text("Sanj TV${if (ca.sanjwad.tvplayer.BuildConfig.TEST_BUILD) " Test" else ""}  ·  build ${ca.sanjwad.tvplayer.BuildConfig.VERSION_CODE}", fontSize = 13.sp, color = TextDim, modifier = w)
         Spacer(Modifier.height(8.dp))
         Row(w, verticalAlignment = Alignment.CenterVertically) {
             Text("TMDB", Modifier.clip(RoundedCornerShape(4.dp)).background(Color(0xFF0D253F))
@@ -383,19 +464,22 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
     var importOffer by remember { mutableStateOf<Library.OldAccount?>(null) }
     var importing by remember { mutableStateOf(false) }
     val importChoice = remember { kotlinx.coroutines.CompletableDeferred<Boolean>() }
+    var showLog by remember { mutableStateOf(false) }
 
     LaunchedEffect(attempt) {
         error = null
         val r = withContext(Dispatchers.IO) {
             runCatching {
-                val c: IptvSource = XtreamClient(prefs.xtServer, prefs.xtUser, prefs.xtPass,
+                val c: IptvSource = if (prefs.isStalker)
+                    ca.sanjwad.tvplayer.stalker.StalkerClient(prefs.stPortal, prefs.stMac, prefs.stSerial, prefs.stDeviceId, prefs.stDeviceId2)
+                else XtreamClient(prefs.xtServer, prefs.xtUser, prefs.xtPass,
                     java.io.File(ctx.filesDir, "catalogue").apply { mkdirs() })
                 c.connect()
                 c
             }
         }
         r.onSuccess { c ->
-            Library.load(ctx, "${prefs.xtServer}|${prefs.xtUser}")
+            Library.load(ctx, prefs.accountKey)
             // Your own key if you entered one, otherwise the key built into the app.
             Session.tmdb = prefs.tmdbKey.ifBlank { ca.sanjwad.tvplayer.BuildConfig.TMDB_KEY }
                 .takeIf { it.isNotBlank() }?.let { ca.sanjwad.tvplayer.stalker.TmdbClient(it) }
@@ -410,7 +494,7 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
                 if (yes) {
                     importing = true
                     val summary = withContext(Dispatchers.IO) { runCatching { Library.importFrom(old, c) }.getOrDefault("") }
-                    Library.load(ctx, "${prefs.xtServer}|${prefs.xtUser}")
+                    Library.load(ctx, prefs.accountKey)
                     if (summary.isNotBlank()) android.widget.Toast.makeText(ctx, summary, android.widget.Toast.LENGTH_LONG).show()
                 } else Library.markAsked()
                 importOffer = null; importing = false
@@ -439,6 +523,11 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
             .onFailure { error = it.message ?: "Couldn't connect." }
     }
     LaunchedEffect(error) { if (error != null) focusSoon(fr) }
+    if (showLog) {
+        BackHandler { showLog = false }
+        PortalLogScreen { showLog = false }
+        return
+    }
 
     // Drawn after the LaunchedEffects so returning early never removes (and cancels)
     // the connect coroutine that is waiting on importChoice.
@@ -479,6 +568,7 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TvButton("Try again", onClick = { attempt++ }, modifier = Modifier.focusRequester(fr))
                 TvButton("Edit details", onClick = onEdit)
+                if (prefs.isStalker) TvButton("Portal log", onClick = { showLog = true })
             }
         }
     }
@@ -1012,6 +1102,34 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+
+/** The last portal requests and replies, so a photo of the TV shows exactly what the portal said. */
+@Composable
+fun PortalLogScreen(onClose: () -> Unit) {
+    var lines by remember { mutableStateOf(ca.sanjwad.tvplayer.stalker.PortalLog.all().reversed()) }
+    val fr = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusSoon(fr) }
+    Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 24.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Portal log", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
+            TvButton("Refresh", onClick = { lines = ca.sanjwad.tvplayer.stalker.PortalLog.all().reversed() }, modifier = Modifier.focusRequester(fr))
+            Spacer(Modifier.width(10.dp))
+            TvButton("Close", onClick = onClose)
+        }
+        Text("Newest first. Take a photo of this screen if something doesn't work.", fontSize = 13.sp, color = TextDim)
+        Spacer(Modifier.height(10.dp))
+        if (lines.isEmpty()) Text("Nothing yet.", fontSize = 15.sp, color = TextDim)
+        androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize()) {
+            items(lines.size) { i ->
+                FocusBox(onClick = {}, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), shape = RoundedCornerShape(6.dp)) {
+                    Text(lines[i], Modifier.padding(horizontal = 10.dp, vertical = 6.dp), fontSize = 12.sp, color = Color.White,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                 }
             }
         }

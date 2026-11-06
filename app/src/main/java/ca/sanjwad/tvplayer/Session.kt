@@ -40,6 +40,32 @@ class Prefs(ctx: Context) {
     var startOnLastChannel: Boolean
         get() = sp.getBoolean("start_last_channel", true)
         set(v) = sp.edit().putBoolean("start_last_channel", v).apply()
+    /** "xtream" or "stalker". */
+    var loginType: String
+        get() = sp.getString("login_type", "xtream").orEmpty()
+        set(v) = sp.edit().putString("login_type", v).apply()
+    val isStalker get() = loginType == "stalker"
+    var stPortal: String
+        get() = sp.getString("st_portal", "").orEmpty()
+        set(v) = sp.edit().putString("st_portal", v).apply()
+    var stMac: String
+        get() = sp.getString("st_mac", "").orEmpty()
+        set(v) = sp.edit().putString("st_mac", v).apply()
+    var stSerial: String
+        get() = sp.getString("st_serial", "").orEmpty()
+        set(v) = sp.edit().putString("st_serial", v).apply()
+    var stDeviceId: String
+        get() = sp.getString("st_device_id", "").orEmpty()
+        set(v) = sp.edit().putString("st_device_id", v).apply()
+    var stDeviceId2: String
+        get() = sp.getString("st_device_id2", "").orEmpty()
+        set(v) = sp.edit().putString("st_device_id2", v).apply()
+
+    /** Identifies this login for per-login favourites and My List. */
+    val accountKey: String
+        get() = if (isStalker) "${stPortal.trim()}|${stMac.trim().uppercase()}" else "$xtServer|$xtUser"
+
     val isConfigured: Boolean
-        get() = xtServer.isNotBlank() && xtUser.isNotBlank() && xtPass.isNotBlank()
+        get() = if (isStalker) stPortal.isNotBlank() && stMac.isNotBlank()
+            else xtServer.isNotBlank() && xtUser.isNotBlank() && xtPass.isNotBlank()
 }

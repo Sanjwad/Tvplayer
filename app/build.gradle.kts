@@ -5,13 +5,18 @@ plugins {
 }
 
 val buildNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
+// SANJ_TEST=1 builds "Sanj TV Test": its own app id (installs beside Sanj TV) and its own update channel.
+val testBuild = System.getenv("SANJ_TEST") == "1"
 
 android {
     namespace = "ca.sanjwad.tvplayer"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "ca.sanjwad.tvplayer"
+        applicationId = if (testBuild) "ca.sanjwad.tvplayer.test" else "ca.sanjwad.tvplayer"
+        manifestPlaceholders["appLabel"] = if (testBuild) "Sanj TV Test" else "Sanj TV"
+        buildConfigField("String", "UPDATE_TAG", "\"${if (testBuild) "stalker-test" else "latest"}\"")
+        buildConfigField("boolean", "TEST_BUILD", "$testBuild")
         minSdk = 25
         targetSdk = 34
         versionCode = buildNumber

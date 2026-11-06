@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, stalker]
   workflow_dispatch: {}
 
 permissions:
@@ -28,6 +28,8 @@ jobs:
         env:
           TMDB_KEY: ${{ secrets.TMDB_KEY }}
           OMDB_KEY: ${{ secrets.OMDB_KEY }}
+          # Anything but main builds "Sanj TV Test", which installs beside Sanj TV.
+          SANJ_TEST: ${{ github.ref_name == 'main' && '0' || '1' }}
         run: |
           set -o pipefail
           gradle :app:assembleRelease --no-daemon 2>&1 | tee build.log
@@ -42,6 +44,7 @@ jobs:
           gh release create buildlog build.log errors.txt --title "Last failed build log" --notes "Run ${{ github.run_number }}" --prerelease --target "${{ github.sha }}"
 
       - name: Publish as "latest" release
+        if: github.ref_name == 'main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -52,3 +55,16 @@ jobs:
             --title "Sanj TV build ${{ github.run_number }}" \
             --notes "Version 0.1.${{ github.run_number }}" \
             --target "${{ github.sha }}" --latest
+
+      - name: Publish test build (never touches "latest")
+        if: github.ref_name != 'main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk tvplayer.apk
+          echo '{"versionCode": ${{ github.run_number }}, "versionName": "0.1.${{ github.run_number }}-test"}' > version.json
+          gh release delete stalker-test --yes --cleanup-tag || true
+          gh release create stalker-test tvplayer.apk version.json \
+            --title "Sanj TV Test build ${{ github.run_number }}" \
+            --notes "Test build from ${{ github.ref_name }}. Installs beside Sanj TV." \
+            --target "${{ github.sha }}" --prerelease --latest=false
