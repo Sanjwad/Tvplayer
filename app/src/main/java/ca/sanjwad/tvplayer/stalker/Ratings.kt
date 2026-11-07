@@ -37,6 +37,16 @@ class OmdbClient(private val key: String) {
         }
     }
 
+    /** Awards, box office, age rating, writers etc. for an IMDb id (fields as OMDb names them), or null. */
+    fun details(imdbId: String): JSONObject? {
+        val url = "https://www.omdbapi.com/".toHttpUrl().newBuilder()
+            .addQueryParameter("apikey", key).addQueryParameter("i", imdbId).build()
+        http.newCall(Request.Builder().url(url).build()).execute().use { r ->
+            val o = JSONObject(r.body?.string().orEmpty().ifBlank { "{}" })
+            return if (o.optString("Response") == "False") null else o
+        }
+    }
+
     private fun lookup(q: String, year: String, isSeries: Boolean): String? {
         val url = "https://www.omdbapi.com/".toHttpUrl().newBuilder()
             .addQueryParameter("apikey", key).addQueryParameter("t", q)

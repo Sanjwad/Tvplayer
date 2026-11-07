@@ -158,8 +158,12 @@ fun App() {
                 screen == "connect" -> ConnectScreen(prefs, onDone = { screen = "home" }, onEdit = { screen = "setup" })
                 top is DetailReq -> androidx.compose.runtime.key(top) {
                     DetailScreen(top.type, top.item, top.seasonId,
-                        onCast = { stack.add(CastNav(top.item.name, top.item.year, top.item.isSeries)) }) { pop() }
+                        onCast = { stack.add(CastNav(top.item.name, top.item.year, top.item.isSeries)) },
+                        onAbout = { stack.add(AboutNav(top.item.name, top.item.year, top.item.isSeries)) }) { pop() }
                 }
+                top is AboutNav -> AboutPage(top, onClose = { pop() },
+                    onCast = { stack.add(CastNav(top.title, top.year, top.isSeries)) },
+                    onPick = { t, i -> stack.add(DetailReq(t, i, null)) })
                 top is CastNav -> CastBrowser(top, onClose = { pop() }, onPick = { t, i -> stack.add(DetailReq(t, i, null)) })
                 else -> HomeScreen(
                     section = section, onSection = { section = it }, live = live, movies = movies, series = series,
@@ -906,7 +910,7 @@ fun PosterCard(item: VodItem, onClick: () -> Unit) {
 // ---------------- details ----------------
 
 @Composable
-fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, onCast: (() -> Unit)? = null, onBack: () -> Unit) {
+fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, onCast: (() -> Unit)? = null, onAbout: (() -> Unit)? = null, onBack: () -> Unit) {
     var item by remember { mutableStateOf(start) }
     BackHandler(onBack = onBack)
     val ctx = LocalContext.current
@@ -1040,6 +1044,7 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
                         TvButton(if (prog != null) "▶  Resume  ·  ${((prog.durMs - prog.posMs) / 60_000).coerceAtLeast(1)}m left" else "▶  Play",
                             onClick = { playMovie() }, modifier = Modifier.focusRequester(fr))
                         listButton()
+                        if (onAbout != null && Session.tmdb != null) TvButton("About", onClick = onAbout)
                         if (onCast != null && Session.tmdb != null) TvButton("Cast & crew", onClick = onCast)
                     }
                 } else {
@@ -1059,6 +1064,7 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
                             else -> TvButton("✓  Caught up", onClick = {}, modifier = Modifier.focusRequester(fr))
                         }
                         listButton()
+                        if (onAbout != null && Session.tmdb != null) TvButton("About", onClick = onAbout)
                         if (onCast != null && Session.tmdb != null) TvButton("Cast & crew", onClick = onCast)
                     }
                     Spacer(Modifier.height(14.dp))

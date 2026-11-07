@@ -52,6 +52,7 @@ import ca.sanjwad.tvplayer.stalker.XtreamClient
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
@@ -302,7 +303,7 @@ private fun PersonPage(personId: Int, onPick: (type: String, item: VodItem) -> U
 @Composable
 fun PauseOverlay(
     title: String, subtitle: String, plot: String, poster: String?,
-    onResume: () -> Unit, onCast: (() -> Unit)?, onBack: () -> Unit,
+    onResume: () -> Unit, onCast: (() -> Unit)?, onBack: () -> Unit, onAbout: (() -> Unit)? = null,
 ) {
     BackHandler(onBack = onBack)
     val fr = remember { FocusRequester() }
@@ -327,8 +328,185 @@ fun PauseOverlay(
                 Spacer(Modifier.height(20.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     TvButton("▶  Resume", onClick = onResume, modifier = Modifier.focusRequester(fr))
+                    if (onAbout != null) TvButton("About", onClick = onAbout)
                     if (onCast != null) TvButton("Cast & crew", onClick = onCast)
                     TvButton("Seek / controls", onClick = onBack)
+                }
+            }
+        }
+    }
+}
+
+// ---------------- About this film / show ----------------
+
+class AboutNav(val title: String, val year: String, val isSeries: Boolean)
+
+private fun money(v: Long): String = when {
+    v >= 1_000_000_000 -> "$" + String.format(java.util.Locale.US, "%.2fB", v / 1e9).replace(".00B", "B")
+    v >= 1_000_000 -> "$" + String.format(java.util.Locale.US, "%.0fM", v / 1e6)
+    else -> "$" + String.format(java.util.Locale.US, "%,d", v)
+}
+
+private fun runtimeText(min: Int) = if (min >= 60) "${min / 60}h ${min % 60}m" else "${min}m"
+
+/** Opens a YouTube video in the TV's YouTube app (or a browser if that's all there is). */
+fun openTrailer(ctx: android.content.Context, key: String) {
+    val tries = listOf("vnd.youtube:$key", "https://www.youtube.com/watch?v=$key")
+    for (u in tries) {
+        try {
+            ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u))
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        } catch (e: android.content.ActivityNotFoundException) { }
+    }
+    android.widget.Toast.makeText(ctx, "Install the YouTube app to watch trailers.", android.widget.Toast.LENGTH_LONG).show()
+}
+
+@Composable
+private fun DimTile(c: TmdbClient.Credit, modifier: Modifier = Modifier) {
+    FocusBox(onClick = {}, modifier = modifier.width(112.dp), shape = RoundedCornerShape(8.dp)) {
+        Column(Modifier.padding(4.dp)) {
+            Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(6.dp)).background(Bg)) {
+                Text(c.title, Modifier.align(Alignment.Center).padding(6.dp), color = TextDim, fontSize = 12.sp, maxLines = 4)
+                AsyncImage(model = c.poster, contentDescription = c.title, modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop, alpha = 0.5f)
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(c.title, fontSize = 12.sp, color = Color(0xFFB8C0CC), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(if (c.year.isBlank()) "Not on your service" else "${c.year} · not on service", fontSize = 11.sp, color = TextDim, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+fun AboutPage(nav: AboutNav, onClose: () -> Unit, onCast: () -> Unit, onPick: (type: String, item: VodItem) -> Unit) {
+    BackHandler(onBack = onClose)
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var about by remember(nav) { mutableStateOf<TmdbClient.About?>(null) }
+    var failed by remember { mutableStateOf<String?>(null) }
+    var omdb by remember { mutableStateOf<org.json.JSONObject?>(null) }
+    var wiki by remember { mutableStateOf<ca.sanjwad.tvplayer.stalker.Wikidata.Facts?>(null) }
+    var owned by remember { mutableStateOf<Map<TmdbClient.Credit, Pair<String, VodItem>>?>(null) }
+    val fr = remember { FocusRequester() }
+
+    LaunchedEffect(nav) {
+        val tmdb = Session.tmdb ?: run { failed = "This needs a TMDB key (Settings)."; return@LaunchedEffect }
+        val a = withContext(Dispatchers.IO) { runCatching { tmdb.about(nav.title, nav.year, nav.isSeries) } }
+            .onFailure { failed = it.message }.getOrNull()
+        if (a == null) { if (failed == null) failed = "Couldn't find this title on TMDB."; return@LaunchedEffect }
+        about = a
+        delay(150); runCatching { fr.requestFocus() }
+        kotlinx.coroutines.coroutineScope {
+            launch(Dispatchers.IO) { a.imdbId?.let { id -> omdb = runCatching { Session.omdb?.details(id) }.getOrNull() } }
+            launch(Dispatchers.IO) { a.imdbId?.let { id -> wiki = runCatching { ca.sanjwad.tvplayer.stalker.Wikidata.facts(id) }.getOrNull() } }
+            launch(Dispatchers.IO) { owned = runCatching { CastLibrary.match(a.collection + a.similar.take(20)) }.getOrDefault(emptyMap()) }
+        }
+    }
+
+    val a = about
+    if (a == null) {
+        Box(Modifier.fillMaxSize().background(Bg), contentAlignment = Alignment.Center) {
+            Text(failed ?: "Loading…", color = TextDim, fontSize = 18.sp)
+        }
+        return
+    }
+    fun om(k: String) = omdb?.optString(k)?.takeIf { it.isNotBlank() && it != "N/A" }
+
+    // "Did you know?" facts, most interesting first.
+    val facts = buildList {
+        om("Awards")?.let { add("🏆" to it) }
+        if (a.revenue > 0 && a.budget > 0) {
+            val x = a.revenue.toDouble() / a.budget
+            add("💰" to "Made ${money(a.revenue)} worldwide on a ${money(a.budget)} budget" +
+                if (x >= 1.5) " — ${String.format(java.util.Locale.US, "%.1f", x)}× what it cost." else if (x < 1) " — it lost money." else ".")
+        } else if (a.revenue > 0) add("💰" to "Made ${money(a.revenue)} at the box office worldwide.")
+        else if (a.budget > 0) add("💰" to "Cost ${money(a.budget)} to make.")
+        else om("BoxOffice")?.let { add("💰" to "Made $it at the US box office.") }
+        wiki?.basedOn?.takeIf { it.isNotEmpty() }?.let { add("📖" to "Based on ${it.joinToString("; ")}") }
+        wiki?.filmedIn?.takeIf { it.isNotEmpty() }?.let { add("🎬" to "Filmed in ${it.joinToString(", ")}") }
+        wiki?.setIn?.takeIf { it.isNotEmpty() }?.let { add("📍" to "Set in ${it.joinToString(", ")}") }
+        if (a.isSeries) {
+            if (a.creators.isNotEmpty()) add("✍" to "Created by ${a.creators.joinToString(", ")}")
+            if (a.seasons > 0) add("📺" to "${a.seasons} season${if (a.seasons == 1) "" else "s"}, ${a.episodes} episodes" +
+                (if (a.networks.isNotEmpty()) " on ${a.networks.joinToString(", ")}" else "") +
+                when (a.status) { "Ended" -> " — ended ${a.lastAired.take(4)}."; "Returning Series" -> " — still running."; "Canceled" -> " — cancelled ${a.lastAired.take(4)}."; else -> "." })
+        } else {
+            om("Director")?.let { add("🎥" to "Directed by $it") }
+            om("Writer")?.let { add("✍" to "Written by $it") }
+        }
+        if (a.studios.isNotEmpty()) add("🏢" to (if (a.isSeries) "Produced by " else "From ") + a.studios.joinToString(", "))
+        listOfNotNull(om("Language")?.let { "Language: $it" }, om("Country")?.let { "Country: $it" })
+            .takeIf { it.isNotEmpty() }?.let { add("🌍" to it.joinToString("   ·   ")) }
+    }
+
+    Box(Modifier.fillMaxSize().background(Bg)) {
+        AsyncImage(model = a.backdrop, contentDescription = null, modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop, alpha = 0.16f)
+        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            item {
+                Row {
+                    Box(Modifier.width(150.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp)).background(Panel)) {
+                        AsyncImage(model = a.poster, contentDescription = a.title, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    }
+                    Spacer(Modifier.width(24.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("About", fontSize = 14.sp, color = Accent, fontWeight = FontWeight.SemiBold)
+                        Text(a.title, fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
+                        if (a.tagline.isNotBlank()) Text("“${a.tagline}”", fontSize = 16.sp, color = LogoYellow,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+                        val line = listOfNotNull(
+                            a.released.takeIf { it.isNotBlank() }?.let { prettyDate(it) },
+                            a.runtime.takeIf { it > 0 }?.let { if (a.isSeries) "${it}m episodes" else runtimeText(it) },
+                            a.certification.takeIf { it.isNotBlank() }?.let { "Rated $it" },
+                            a.genres.takeIf { it.isNotEmpty() }?.joinToString(", "),
+                        )
+                        if (line.isNotEmpty()) { Spacer(Modifier.height(6.dp)); Text(line.joinToString("  ·  "), fontSize = 14.sp, color = TextDim) }
+                        if (a.overview.isNotBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(a.overview, fontSize = 14.sp, color = Color(0xFFD5DAE1), maxLines = 4, overflow = TextOverflow.Ellipsis)
+                        }
+                        Spacer(Modifier.height(14.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            val t = a.trailer
+                            if (t != null) TvButton("▶  Watch trailer", onClick = { openTrailer(ctx, t) }, modifier = Modifier.focusRequester(fr))
+                            TvButton("Cast & crew", onClick = onCast, modifier = if (t == null) Modifier.focusRequester(fr) else Modifier)
+                        }
+                    }
+                }
+            }
+            if (facts.isNotEmpty() || omdb == null || wiki == null) item {
+                Text("Did you know?", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                Spacer(Modifier.height(8.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    facts.forEach { (icon, text) ->
+                        FocusBox(onClick = {}, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+                            Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.Top) {
+                                Text(icon, fontSize = 16.sp, modifier = Modifier.width(30.dp))
+                                Text(text, fontSize = 15.sp, color = Color(0xFFE2E6EC))
+                            }
+                        }
+                    }
+                    if (omdb == null && a.imdbId != null || wiki == null && a.imdbId != null)
+                        Text("Looking up more…", fontSize = 13.sp, color = TextDim)
+                }
+            }
+            val have = owned
+            if (a.collection.isNotEmpty()) item {
+                Text(a.collectionName ?: "The whole series", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                Spacer(Modifier.height(8.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    itemsIndexed(a.collection) { _, c ->
+                        val hit = have?.get(c)
+                        if (hit != null) PosterTile(hit.second) { onPick(hit.first, hit.second) } else DimTile(c)
+                    }
+                }
+            }
+            val similar = have?.let { h -> a.similar.mapNotNull { h[it] } }.orEmpty()
+            if (similar.isNotEmpty()) item {
+                Text("More like this on your service", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                Spacer(Modifier.height(8.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    itemsIndexed(similar) { _, hit -> PosterTile(hit.second) { onPick(hit.first, hit.second) } }
                 }
             }
         }

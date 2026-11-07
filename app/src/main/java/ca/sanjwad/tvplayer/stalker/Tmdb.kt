@@ -254,6 +254,104 @@ class TmdbClient(private val key: String) {
         return p
     }
 
+    // ---------- "About this film" ----------
+
+    data class About(
+        val tmdbId: Int, val isSeries: Boolean, val title: String, val tagline: String, val overview: String,
+        val released: String, val runtime: Int, val certification: String, val genres: List<String>,
+        val studios: List<String>, val budget: Long, val revenue: Long, val imdbId: String?,
+        val trailer: String?, val collectionName: String?, val collection: List<Credit>, val similar: List<Credit>,
+        val backdrop: String?, val poster: String?,
+        // TV only
+        val networks: List<String> = emptyList(), val creators: List<String> = emptyList(),
+        val seasons: Int = 0, val episodes: Int = 0, val status: String = "", val lastAired: String = "",
+    )
+
+    private val abouts = java.util.concurrent.ConcurrentHashMap<String, About>()
+
+    private fun credits(arr: org.json.JSONArray?, tv: Boolean): List<Credit> {
+        if (arr == null) return emptyList()
+        return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.map { c ->
+            Credit(
+                title = c.optString("title").ifBlank { c.optString("name") },
+                year = c.optString("release_date").ifBlank { c.optString("first_air_date") }.take(4),
+                isSeries = tv, role = "",
+                poster = img(c, "poster_path", "w342"), backdrop = img(c, "backdrop_path", "w1280"),
+                overview = c.optString("overview"), popularity = c.optDouble("popularity", 0.0),
+            )
+        }.filter { it.title.isNotBlank() }
+    }
+
+    private fun trailerKey(videos: JSONObject?): String? {
+        val arr = videos?.optJSONArray("results") ?: return null
+        val vids = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.filter { it.optString("site") == "YouTube" }
+        return (vids.firstOrNull { it.optString("type") == "Trailer" && it.optBoolean("official") }
+            ?: vids.firstOrNull { it.optString("type") == "Trailer" }
+            ?: vids.firstOrNull { it.optString("type") == "Teaser" })?.optString("key")
+    }
+
+    fun about(title: String, year: String, isSeries: Boolean): About? {
+        val id = (if (isSeries) findTv(title, year) else findMovie(title, year)) ?: return null
+        val cacheKey = "${if (isSeries) "tv" else "movie"}/$id"
+        abouts[cacheKey]?.let { return it }
+        val names = { arr: org.json.JSONArray?, k: String -> if (arr == null) emptyList() else (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optString(k) }.filter { it.isNotBlank() } }
+        val a = if (!isSeries) {
+            val o = get("movie/$id", "append_to_response" to "videos,release_dates,recommendations")
+            // Canadian rating if there is one, else US.
+            val cert = o.optJSONObject("release_dates")?.optJSONArray("results")?.let { arr ->
+                val all = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+                listOf("CA", "US").firstNotNullOfOrNull { cc ->
+                    all.firstOrNull { it.optString("iso_3166_1") == cc }?.optJSONArray("release_dates")?.let { rd ->
+                        (0 until rd.length()).mapNotNull { rd.optJSONObject(it)?.optString("certification") }.firstOrNull { it.isNotBlank() }
+                    }
+                }
+            }.orEmpty()
+            val coll = o.optJSONObject("belongs_to_collection")
+            val parts = coll?.optInt("id")?.takeIf { it > 0 }?.let { cid ->
+                runCatching { credits(get("collection/$cid").optJSONArray("parts"), false).sortedBy { it.year.ifBlank { "9999" } } }.getOrNull()
+            }.orEmpty()
+            About(
+                tmdbId = id, isSeries = false, title = o.optString("title"), tagline = o.optString("tagline"),
+                overview = o.optString("overview"), released = o.optString("release_date"), runtime = o.optInt("runtime"),
+                certification = cert, genres = names(o.optJSONArray("genres"), "name"),
+                studios = names(o.optJSONArray("production_companies"), "name").take(3),
+                budget = o.optLong("budget"), revenue = o.optLong("revenue"),
+                imdbId = o.optString("imdb_id").takeIf { it.startsWith("tt") },
+                trailer = trailerKey(o.optJSONObject("videos")),
+                collectionName = coll?.optString("name")?.takeIf { it.isNotBlank() && parts.size > 1 },
+                collection = if (parts.size > 1) parts else emptyList(),
+                similar = credits(o.optJSONObject("recommendations")?.optJSONArray("results"), false),
+                backdrop = img(o, "backdrop_path", "w1280"), poster = img(o, "poster_path", "w342"),
+            )
+        } else {
+            val o = get("tv/$id", "append_to_response" to "videos,content_ratings,external_ids,recommendations")
+            val cert = o.optJSONObject("content_ratings")?.optJSONArray("results")?.let { arr ->
+                val all = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+                listOf("CA", "US").firstNotNullOfOrNull { cc -> all.firstOrNull { it.optString("iso_3166_1") == cc }?.optString("rating")?.takeIf { it.isNotBlank() } }
+            }.orEmpty()
+            val runtimes = o.optJSONArray("episode_run_time")
+            About(
+                tmdbId = id, isSeries = true, title = o.optString("name"), tagline = o.optString("tagline"),
+                overview = o.optString("overview"), released = o.optString("first_air_date"),
+                runtime = if (runtimes != null && runtimes.length() > 0) runtimes.optInt(0) else 0,
+                certification = cert, genres = names(o.optJSONArray("genres"), "name"),
+                studios = names(o.optJSONArray("production_companies"), "name").take(3),
+                budget = 0, revenue = 0,
+                imdbId = o.optJSONObject("external_ids")?.optString("imdb_id")?.takeIf { it.startsWith("tt") },
+                trailer = trailerKey(o.optJSONObject("videos")),
+                collectionName = null, collection = emptyList(),
+                similar = credits(o.optJSONObject("recommendations")?.optJSONArray("results"), true),
+                backdrop = img(o, "backdrop_path", "w1280"), poster = img(o, "poster_path", "w342"),
+                networks = names(o.optJSONArray("networks"), "name"),
+                creators = names(o.optJSONArray("created_by"), "name"),
+                seasons = o.optInt("number_of_seasons"), episodes = o.optInt("number_of_episodes"),
+                status = o.optString("status"), lastAired = o.optString("last_air_date").takeIf { it != "null" }.orEmpty(),
+            )
+        }
+        abouts[cacheKey] = a
+        return a
+    }
+
     fun trendingMovies() = list("trending/movie/week", 3)
     fun inTheatres() = list("movie/now_playing", 3, "region" to "CA")
     fun trendingTv() = list("trending/tv/week", 3)

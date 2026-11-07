@@ -394,7 +394,7 @@ class PlayerActivity : ComponentActivity() {
     // ---------- pause screen & cast ----------
 
     private lateinit var overlayView: androidx.compose.ui.platform.ComposeView
-    /** null, "pause" or "cast". */
+    /** null, "pause", "about" or "cast". */
     private var overlay by androidx.compose.runtime.mutableStateOf<String?>(null)
     private val castNav by lazy {
         val year = intent.getStringExtra("year")?.takeIf { it.isNotBlank() }
@@ -438,7 +438,12 @@ class PlayerActivity : ComponentActivity() {
                         onResume = { closeOverlay(); player.play() },
                         onCast = if (Session.tmdb != null) ({ overlay = "cast" }) else null,
                         onBack = { closeOverlay(showControls = true) },
+                        onAbout = if (Session.tmdb != null) ({ overlay = "about" }) else null,
                     )
+                    "about" -> ca.sanjwad.tvplayer.ui.AboutPage(
+                        ca.sanjwad.tvplayer.ui.AboutNav(castNav.title, castNav.year, castNav.isSeries),
+                        onClose = { overlay = "pause" }, onCast = { overlay = "cast" },
+                        onPick = { type, item -> playFromCast(type, item) })
                     "cast" -> ca.sanjwad.tvplayer.ui.CastBrowser(castNav, onClose = { overlay = "pause" },
                         onPick = { type, item -> playFromCast(type, item) })
                 }
