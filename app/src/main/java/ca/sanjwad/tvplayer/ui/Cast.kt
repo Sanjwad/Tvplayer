@@ -245,8 +245,17 @@ private fun PersonPage(personId: Int, onPick: (type: String, item: VodItem) -> U
                         Text(facts.joinToString("  ·  "), fontSize = 14.sp, color = TextDim)
                     }
                     Spacer(Modifier.height(10.dp))
-                    Text(p.bio.ifBlank { "No biography available." }, fontSize = 14.sp,
-                        color = if (p.bio.isBlank()) TextDim else Color(0xFFD5DAE1), maxLines = 7, overflow = TextOverflow.Ellipsis)
+                    // Selectable, so Up from the rows below comes back here; OK shows the whole biography.
+                    var full by remember { mutableStateOf(false) }
+                    FocusBox(onClick = { full = !full }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+                        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                            Text(p.bio.ifBlank { "No biography available." }, fontSize = 14.sp,
+                                color = if (p.bio.isBlank()) TextDim else Color(0xFFD5DAE1),
+                                maxLines = if (full) 60 else 6, overflow = TextOverflow.Ellipsis)
+                            if (p.bio.length > 400) Text(if (full) "Show less" else "Read more", fontSize = 13.sp,
+                                color = Accent, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
+                        }
+                    }
                 }
             }
         }
