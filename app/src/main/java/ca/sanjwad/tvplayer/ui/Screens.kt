@@ -129,7 +129,13 @@ fun App() {
     val ctx = LocalContext.current
     val prefs = remember { Prefs(ctx) }
     var screen by remember { mutableStateOf(if (!prefs.isConfigured) "setup" else "connect") }
-    var detail by remember { mutableStateOf<DetailReq?>(null) }
+    // Pages opened over Home: title pages and cast pages, newest last. Back pops one.
+    val stack = remember { androidx.compose.runtime.mutableStateListOf<Any>() }
+    fun pop() { if (stack.isNotEmpty()) stack.removeAt(stack.lastIndex) }
+    // A show picked from an actor's page inside the player opens here.
+    LaunchedEffect(Session.pendingOpen) {
+        Session.pendingOpen?.let { (t, i) -> stack.add(DetailReq(t, i, null)); Session.pendingOpen = null }
+    }
     var section by remember { mutableIntStateOf(0) }
     val live = remember { LiveState() }
     val movies = remember { VodState("movies") }
@@ -141,18 +147,23 @@ fun App() {
         androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density * 0.85f, d.fontScale),
     ) {
         Box(Modifier.fillMaxSize().background(Bg)) {
-            val dt = detail
+            val top = stack.lastOrNull()
             when {
                 screen == "setup" -> SetupScreen(prefs, hasSaved = prefs.isConfigured,
                     onCancel = { screen = if (Session.client != null) "home" else "connect" }) {
                     live.reset(); movies.reset(); series.reset(); Session.client = null; Session.seasonCache.clear()
+                    stack.clear(); Session.vodTypes.clear()
                     screen = "connect"
                 }
                 screen == "connect" -> ConnectScreen(prefs, onDone = { screen = "home" }, onEdit = { screen = "setup" })
-                dt != null -> DetailScreen(dt.type, dt.item, dt.seasonId) { detail = null }
+                top is DetailReq -> androidx.compose.runtime.key(top) {
+                    DetailScreen(top.type, top.item, top.seasonId,
+                        onCast = { stack.add(CastNav(top.item.name, top.item.year, top.item.isSeries)) }) { pop() }
+                }
+                top is CastNav -> CastBrowser(top, onClose = { pop() }, onPick = { t, i -> stack.add(DetailReq(t, i, null)) })
                 else -> HomeScreen(
                     section = section, onSection = { section = it }, live = live, movies = movies, series = series,
-                    onOpen = { type, item, seasonId -> detail = DetailReq(type, item, seasonId) },
+                    onOpen = { type, item, seasonId -> stack.add(DetailReq(type, item, seasonId)) },
                     onSettings = { screen = "setup" },
                 )
             }
@@ -808,6 +819,7 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
             r.exceptionOrNull()?.let { s.error = it.message }
             r.getOrNull()?.let { (type, cats) ->
                 s.type = type
+                Session.vodTypes[s.kind] = type
                 s.categories = cats; s.catsLoaded = true
                 if (s.category == null && cats.isNotEmpty()) { s.category = cats.first().id; loadPage(true) }
             }
@@ -894,7 +906,7 @@ fun PosterCard(item: VodItem, onClick: () -> Unit) {
 // ---------------- details ----------------
 
 @Composable
-fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, onBack: () -> Unit) {
+fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, onCast: (() -> Unit)? = null, onBack: () -> Unit) {
     var item by remember { mutableStateOf(start) }
     BackHandler(onBack = onBack)
     val ctx = LocalContext.current
@@ -922,14 +934,16 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
     }
 
     fun playMovie() = play(item.cmd, "", item.name, item.id, mapOf(
-        "key" to "m:${item.id}", "subtitle" to item.year, "poster" to (item.poster ?: item.backdrop)))
+        "key" to "m:${item.id}", "subtitle" to item.year, "poster" to (item.poster ?: item.backdrop),
+        "year" to item.year, "plot" to item.description, "is_series" to "0"))
 
     fun playEpisode(s: Season, si: Int, ep: Episode, ei: Int) {
         val sn = Library.seasonNumber(s, si); val en = Library.episodeNumber(ep, ei)
         Library.markWatched(item.id, sn, en)
         play(ep.cmd, ep.seriesParam, item.name, null, mapOf(
             "key" to "e:${ep.cmd}", "subtitle" to "S$sn E$en  ·  ${ep.title}",
-            "poster" to (item.poster ?: ep.thumb), "series_id" to item.id))
+            "poster" to (item.poster ?: ep.thumb), "series_id" to item.id,
+            "year" to item.year, "plot" to ep.plot.ifBlank { item.description }, "is_series" to "1"))
     }
 
     LaunchedEffect(item.id) {
@@ -1026,6 +1040,7 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
                         TvButton(if (prog != null) "▶  Resume  ·  ${((prog.durMs - prog.posMs) / 60_000).coerceAtLeast(1)}m left" else "▶  Play",
                             onClick = { playMovie() }, modifier = Modifier.focusRequester(fr))
                         listButton()
+                        if (onCast != null && Session.tmdb != null) TvButton("Cast & crew", onClick = onCast)
                     }
                 } else {
                     val ss = seasons
@@ -1044,6 +1059,7 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
                             else -> TvButton("✓  Caught up", onClick = {}, modifier = Modifier.focusRequester(fr))
                         }
                         listButton()
+                        if (onCast != null && Session.tmdb != null) TvButton("Cast & crew", onClick = onCast)
                     }
                     Spacer(Modifier.height(14.dp))
                     if (ss == null) {

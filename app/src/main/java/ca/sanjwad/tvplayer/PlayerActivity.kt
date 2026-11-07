@@ -7,6 +7,8 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.annotation.OptIn
 import androidx.lifecycle.lifecycleScope
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -303,7 +305,25 @@ class PlayerActivity : ComponentActivity() {
             // Don't flash black when the player reconnects; keep the last frame until video resumes.
             setKeepContentOnPlayerReset(true)
         }
-        setContentView(view)
+        // Pause screen and cast pages are drawn over the video.
+        overlayView = androidx.compose.ui.platform.ComposeView(this).apply {
+            visibility = android.view.View.GONE
+            isFocusable = true
+            setContent { OverlayContent() }
+        }
+        setContentView(android.widget.FrameLayout(this).apply {
+            addView(view)
+            addView(overlayView)
+        })
+        player.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                saver.removeCallbacks(showPause)
+                if (isPlaying) { if (overlay != null) closeOverlay() }
+                // Paused by you (not buffering): show the pause screen after a moment.
+                else if (liveIndex < 0 && !player.playWhenReady && player.playbackState == Player.STATE_READY)
+                    saver.postDelayed(showPause, 1200)
+            }
+        })
 
         liveIndex = intent.getIntExtra("live_index", -1)
         val url = intent.getStringExtra("url")
@@ -371,7 +391,90 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
+    // ---------- pause screen & cast ----------
+
+    private lateinit var overlayView: androidx.compose.ui.platform.ComposeView
+    /** null, "pause" or "cast". */
+    private var overlay by androidx.compose.runtime.mutableStateOf<String?>(null)
+    private val castNav by lazy {
+        val year = intent.getStringExtra("year")?.takeIf { it.isNotBlank() }
+            ?: intent.getStringExtra("subtitle")?.takeIf { Regex("^\\d{4}$").matches(it) }.orEmpty()
+        val series = intent.getStringExtra("is_series")?.let { it == "1" } ?: (intent.getStringExtra("series_id") != null)
+        ca.sanjwad.tvplayer.ui.CastNav(intent.getStringExtra("title").orEmpty(), year, series)
+    }
+    private val showPause = Runnable {
+        if (liveIndex < 0 && !player.isPlaying && !player.playWhenReady && overlay == null) openOverlay("pause")
+    }
+
+    private fun openOverlay(kind: String) {
+        overlay = kind
+        view.hideController()
+        view.useController = false
+        overlayView.visibility = android.view.View.VISIBLE
+        overlayView.requestFocus()
+    }
+
+    private fun closeOverlay(showControls: Boolean = false) {
+        overlay = null
+        overlayView.visibility = android.view.View.GONE
+        view.useController = true
+        if (showControls) view.showController()
+        view.requestFocus()
+    }
+
+    @androidx.compose.runtime.Composable
+    private fun OverlayContent() {
+        val d = androidx.compose.ui.platform.LocalDensity.current
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density * 0.85f, d.fontScale),
+        ) {
+            ca.sanjwad.tvplayer.ui.AppTheme {
+                when (overlay) {
+                    "pause" -> ca.sanjwad.tvplayer.ui.PauseOverlay(
+                        title = intent.getStringExtra("title").orEmpty(),
+                        subtitle = intent.getStringExtra("subtitle").orEmpty(),
+                        plot = intent.getStringExtra("plot").orEmpty(),
+                        poster = intent.getStringExtra("poster"),
+                        onResume = { closeOverlay(); player.play() },
+                        onCast = if (Session.tmdb != null) ({ overlay = "cast" }) else null,
+                        onBack = { closeOverlay(showControls = true) },
+                    )
+                    "cast" -> ca.sanjwad.tvplayer.ui.CastBrowser(castNav, onClose = { overlay = "pause" },
+                        onPick = { type, item -> playFromCast(type, item) })
+                }
+            }
+        }
+    }
+
+    /** A title picked on an actor's page: films play straight away; shows open their page in the app. */
+    private fun playFromCast(type: String, item: ca.sanjwad.tvplayer.stalker.VodItem) {
+        saveProgress()
+        if (item.isSeries) {
+            Session.pendingOpen = type to item
+            finish()
+            return
+        }
+        toast("Starting ${item.name}…")
+        lifecycleScope.launch {
+            val r = withContext(Dispatchers.IO) {
+                runCatching { (Session.client ?: error("Not connected")).createLink(type, item.cmd, "", item.id) }
+            }
+            r.onSuccess { url ->
+                startActivity(android.content.Intent(this@PlayerActivity, PlayerActivity::class.java)
+                    .putExtra("url", url).putExtra("title", item.name).putExtra("cmd", item.cmd)
+                    .putExtra("key", "m:${item.id}").putExtra("subtitle", item.year).putExtra("year", item.year)
+                    .putExtra("poster", item.poster ?: item.backdrop).putExtra("plot", item.description).putExtra("is_series", "0"))
+                finish()
+            }.onFailure { toast(it.message ?: "Couldn't start ${item.name}") }
+        }
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Play on the remote while the pause screen is up: just resume.
+        if (overlay != null && event.action == KeyEvent.ACTION_DOWN &&
+            (event.keyCode == KeyEvent.KEYCODE_MEDIA_PLAY || event.keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)) {
+            closeOverlay(); player.play(); return true
+        }
         if (liveIndex >= 0 && event.action == KeyEvent.ACTION_DOWN && !view.isControllerFullyVisible) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> {
@@ -408,6 +511,7 @@ class PlayerActivity : ComponentActivity() {
         saveProgress()
         saver.removeCallbacks(saveTick)
         saver.removeCallbacks(showReconnecting)
+        saver.removeCallbacks(showPause)
         player.pause()
         // Testing aid: how many times the connection dropped (and was recovered) during this playback.
         if (liveIndex < 0 && drops > 0) {

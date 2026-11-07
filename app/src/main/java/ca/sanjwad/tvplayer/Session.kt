@@ -18,6 +18,10 @@ object Session {
     @Volatile var omdb: ca.sanjwad.tvplayer.stalker.OmdbClient? = null
     @Volatile var tmdb: ca.sanjwad.tvplayer.stalker.TmdbClient? = null
     val seasonCache = java.util.concurrent.ConcurrentHashMap<String, List<ca.sanjwad.tvplayer.stalker.Season>>()
+    /** Portal section used for each tab ("movies"/"series" → e.g. "vod"/"series"), once known. */
+    val vodTypes = java.util.concurrent.ConcurrentHashMap<String, String>()
+    /** A title the player asked the main screen to open (e.g. a show picked from an actor's page). */
+    var pendingOpen by androidx.compose.runtime.mutableStateOf<Pair<String, ca.sanjwad.tvplayer.stalker.VodItem>?>(null)
 }
 
 class Prefs(ctx: Context) {
