@@ -103,7 +103,7 @@ class PlayerActivity : ComponentActivity() {
         val portalHeaders = client?.streamHeaders() ?: emptyMap()
         val okhttp = OkHttpClient.Builder()
             .cookieJar(MemoryCookieJar())
-            .dns(ca.sanjwad.tvplayer.stalker.Ipv4First)
+            .apply { if (Session.client is ca.sanjwad.tvplayer.stalker.StalkerClient) dns(ca.sanjwad.tvplayer.stalker.Ipv4First) }
             .followRedirects(true)
             .followSslRedirects(true)
             .connectTimeout(15, TimeUnit.SECONDS)
@@ -270,7 +270,7 @@ class PlayerActivity : ComponentActivity() {
                 }
                 // Movie or episode blipped mid-stream: reconnect and carry on from the same point.
                 // A 403 is a refusal, not a blip: retrying won't help, so say so straight away.
-                if (liveIndex < 0 && url != null && vodRetries < 5 && code != 403) {
+                if (liveIndex < 0 && url != null && vodRetries < 5 && !(code == 403 && client is ca.sanjwad.tvplayer.stalker.StalkerClient)) {
                     vodRetries++
                     drops++
                     lastDrop = "${error.errorCodeName}: ${describe(error.cause ?: error)}"

@@ -313,7 +313,8 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
 
     @Composable
     fun loginFields() {
-        Row(w, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        // Stalker is still being tested: only the test build offers it (or a phone already set up with it).
+        if (ca.sanjwad.tvplayer.BuildConfig.TEST_BUILD || prefs.isStalker) Row(w, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             listOf(false to "Xtream login", true to "Stalker portal (MAC)").forEach { (st, label) ->
                 FocusBox(onClick = { stalker = st; err = null }, selected = stalker == st, shape = RoundedCornerShape(8.dp)) {
                     Text(label, Modifier.padding(horizontal = 16.dp, vertical = 10.dp), fontSize = 15.sp,
