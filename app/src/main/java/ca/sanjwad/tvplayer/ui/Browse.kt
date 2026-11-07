@@ -133,9 +133,10 @@ fun HomeScreen(
 @Composable
 private fun ExitDialog(onClose: () -> Unit, onStay: () -> Unit) {
     val yes = remember { FocusRequester() }
-    BackHandler(onBack = onStay)
     LaunchedEffect(Unit) { delay(100); runCatching { yes.requestFocus() } }
-    Box(Modifier.fillMaxSize().background(Color(0xCC000000)), contentAlignment = Alignment.Center) {
+    // A real dialog window, so the cursor can't wander onto the screen underneath. Back = Stay.
+    androidx.compose.ui.window.Dialog(onDismissRequest = onStay,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.width(420.dp).clip(RoundedCornerShape(14.dp)).background(Panel).padding(28.dp)) {
             Text("Close Sanj TV?", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Spacer(Modifier.height(6.dp))

@@ -60,7 +60,6 @@ fun UpdatePrompt() {
     if (dismissed) return
 
     LaunchedEffect(u, state) { delay(150); runCatching { fr.requestFocus() } }
-    BackHandler { if (state != "downloading") dismissed = true }
 
     fun start() {
         if (!Updater.ensureInstallAllowed(ctx)) { state = "allow"; return }
@@ -74,7 +73,9 @@ fun UpdatePrompt() {
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color(0xCC000000)), contentAlignment = Alignment.Center) {
+    // A real dialog window, so the cursor stays on these buttons. Back = Later (except mid-download).
+    androidx.compose.ui.window.Dialog(onDismissRequest = { if (state != "downloading") dismissed = true },
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.width(500.dp).clip(RoundedCornerShape(14.dp)).background(Panel).padding(28.dp)) {
             Text("Update available", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Spacer(Modifier.height(6.dp))
