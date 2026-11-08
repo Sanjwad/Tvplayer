@@ -108,7 +108,12 @@ class XtreamClient(
         if (status.isNotEmpty() && !status.equals("Active", true)) throw IOException("Account status: $status")
         expiry = info.str("exp_date")
         serverTz = js.optJSONObject("server_info")?.str("timezone").orEmpty()
+        maxConnections = info.str("max_connections").toIntOrNull() ?: 0
     }
+
+    /** How many streams the account may play at once (0 = not said). */
+    @Volatile var maxConnections: Int = 0
+        private set
 
     /** The server's time zone: catch-up addresses use the server's local time. */
     @Volatile var serverTz: String = ""

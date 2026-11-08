@@ -738,6 +738,13 @@ fun LiveScreen(s: LiveState) {
                             FocusBox(onClick = { s.guideView = true }, selected = s.guideView, shape = RoundedCornerShape(16.dp)) {
                                 Text("▦  Guide", Modifier.padding(horizontal = 14.dp, vertical = 6.dp), fontSize = 14.sp, color = Color.White)
                             }
+                            FocusBox(onClick = {
+                                Session.liveAll = s.all; Session.liveGenres = s.genres
+                                ctx.startActivity(Intent(ctx, ca.sanjwad.tvplayer.MultiViewActivity::class.java)
+                                    .putExtra("channel_id", Library.lastChannelId.takeIf { id -> s.all.any { it.id == id } }))
+                            }, shape = RoundedCornerShape(16.dp)) {
+                                Text("⊞  Multi-screen", Modifier.padding(horizontal = 14.dp, vertical = 6.dp), fontSize = 14.sp, color = Color.White)
+                            }
                         }
                     }
                     if (s.guideView && s.genre != SEARCH_ID) {

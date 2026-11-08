@@ -18,6 +18,9 @@ object Session {
     @Volatile var omdb: ca.sanjwad.tvplayer.stalker.OmdbClient? = null
     @Volatile var tmdb: ca.sanjwad.tvplayer.stalker.TmdbClient? = null
     val seasonCache = java.util.concurrent.ConcurrentHashMap<String, List<ca.sanjwad.tvplayer.stalker.Season>>()
+    /** Every live channel and the live groups, for the multi-screen channel picker. */
+    var liveAll: List<ca.sanjwad.tvplayer.stalker.Channel> = emptyList()
+    var liveGenres: List<ca.sanjwad.tvplayer.stalker.Genre> = emptyList()
     /** Portal section used for each tab ("movies"/"series" → e.g. "vod"/"series"), once known. */
     val vodTypes = java.util.concurrent.ConcurrentHashMap<String, String>()
     /** A title the player asked the main screen to open (e.g. a show picked from an actor's page). */
