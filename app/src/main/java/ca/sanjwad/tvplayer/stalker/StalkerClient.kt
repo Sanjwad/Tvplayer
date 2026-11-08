@@ -439,8 +439,8 @@ class StalkerClient(
             val num = s.optString("season_number").clean()
             val name = s.optString("name").clean().ifBlank { s.optString("season_name").clean() }
                 .ifBlank { if (num.isNotBlank()) "Season $num" else "" }
-            Season(s.optString("id"), name, eps)
-        }.map { s ->
+            Season(s.optString("id"), name, eps) to (num.toIntOrNull() ?: numberIn(name))
+        }.sortedWith(compareBy(nullsLast()) { it.second }).map { it.first }.map { s ->
             // Newer portals (Ministra 5.6) list episodes per season: fetch them now so "Play next"
             // and the episode numbers work (otherwise every show looks "Caught up").
             if (s.episodes != null) s
@@ -452,8 +452,18 @@ class StalkerClient(
         season.episodes ?: allPages(
             mapOf("type" to type, "action" to "get_ordered_list", "movie_id" to item.id,
                 "season_id" to season.id, "episode_id" to "0")
-        ).mapIndexed { i, it ->
-            val n = it.optString("series_number").clean().ifBlank { (i + 1).toString() }
+        ).let { rows ->
+            // Portals often list episodes newest first and sometimes leave the number out, so use the
+            // real episode number (from its fields or its name) and sort on it; position is the last resort.
+            val numbered = rows.map { r ->
+                val name = r.optString("name").clean().ifBlank { r.optString("series_name").clean() }
+                r to (listOf("series_number", "episode_number", "number").firstNotNullOfOrNull { k -> r.optString(k).clean().toIntOrNull() }
+                    ?: episodeNumberIn(name))
+            }
+            if (numbered.all { it.second != null }) numbered.sortedBy { it.second }.map { it.first to it.second!! }
+            else rows.mapIndexed { i, r -> r to (i + 1) }
+        }.map { (it, num) ->
+            val n = num.toString()
             val cmd = it.optString("cmd").clean()
             Episode(
                 title = it.optString("name").clean().ifBlank { it.optString("series_name").clean() }.ifBlank { "Episode $n" },
@@ -463,6 +473,14 @@ class StalkerClient(
                 seriesParam = if (cmd.isBlank()) "" else n,
             )
         }
+
+    /** "Season 3" → 3. */
+    private fun numberIn(s: String): Int? = Regex("\\d+").find(s)?.value?.toIntOrNull()
+
+    /** "S02E05 …", "Episode 5", "E5" → 5. */
+    private fun episodeNumberIn(s: String): Int? =
+        Regex("(?:S\\d{1,2}\\s*|\\b)E(?:pisode)?\\s*(\\d{1,4})", RegexOption.IGNORE_CASE).find(s)?.groupValues?.get(1)?.toIntOrNull()
+            ?: s.trim().toIntOrNull()
 
     private fun isSeriesLike(title: String): Boolean =
         Regex("SERIES|SHOWS|TV SHOW|SEASON|SÉRIE|SERIE", RegexOption.IGNORE_CASE).containsMatchIn(title)
@@ -639,7 +657,22 @@ class StalkerClient(
         val ep = episodeId.takeIf { it != "0" }.orEmpty()
         fun quality(o: JSONObject): Int = Regex("\\d{3,4}").find(o.optString("quality") + " " + o.optString("name"))
             ?.value?.toIntOrNull() ?: if (o.optString("quality").contains("4k", true)) 2160 else 0
-        for (row in rows) {
+        // Some portals ignore movie_id and send back the whole catalogue (newest first); playing
+        // file_<id> from that plays some other title. Keep only rows that are this title's files.
+        val mine = rows.filter { r ->
+            val mid = r.optString("movie_id").clean()
+            val looksLikeTitle = r.has("category_id") || r.has("genres_str")
+            when {
+                mid.isNotBlank() -> mid == movieId
+                episodeId == "0" && seasonId == "0" -> !looksLikeTitle || r.optString("id") == movieId
+                else -> !looksLikeTitle
+            }
+        }
+        if (mine.size != rows.size) log += "• ignored ${rows.size - mine.size} file rows for other titles"
+        PortalLog.add("files for $movieId/$seasonId/$episodeId: " + mine.joinToString(" | ") { r ->
+            listOf("id", "movie_id", "quality", "name", "series_number").mapNotNull { k -> r.optString(k).clean().takeIf { it.isNotBlank() }?.let { "$k=$it" } }.joinToString(",")
+        }.take(500))
+        for (row in mine) {
             val inner = row.optJSONArray("files")?.let { arr -> (0 until arr.length()).mapNotNull { arr.optJSONObject(it) } }.orEmpty()
             for (f in inner.sortedByDescending(::quality) + row) {
                 val id = f.optString("id").clean()
@@ -647,8 +680,8 @@ class StalkerClient(
                 val cmd = f.optString("cmd").clean()
                 if (id.isNotBlank()) {
                     tries += "file_$id" to { linkFor("/media/file_$id.mpg") }
-                    tries += "file_$id series=1" to { linkFor("/media/file_$id.mpg", "1") }
-                    if (ep.isNotBlank()) tries += "file_$id series=$ep" to { linkFor("/media/file_$id.mpg", ep) }
+                    // series=1 means "episode 1" on some portals, so only movies get it.
+                    if (ep.isBlank()) tries += "file_$id series=1" to { linkFor("/media/file_$id.mpg", "1") }
                 }
                 if (cmd.isNotBlank() && cmd != skip) {
                     later += "link(cmd) ${cmd.take(50)}" to { linkFor(cmd) }
@@ -661,8 +694,6 @@ class StalkerClient(
                 }
             }
         }
-        // Episode with no file records: the season as the file and the episode number as "series".
-        if (seasonId != "0" && ep.isNotBlank()) tries += "season file_$seasonId series=$ep" to { linkFor("/media/file_$seasonId.mpg", ep) }
         tries += later
         if (tries.isEmpty()) { log += "• file list: (none)"; PortalLog.pinned = listOf("PLAY: no video files listed"); return null }
 
