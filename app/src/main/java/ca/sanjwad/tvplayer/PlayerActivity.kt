@@ -191,7 +191,9 @@ class PlayerActivity : ComponentActivity() {
         }
         player = ExoPlayer.Builder(this)
             .setLoadControl(loadControl)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(http).setLoadErrorHandlingPolicy(errorPolicy))
+            // DefaultDataSource: video over our OkHttp client, downloaded subtitle files from storage.
+            .setMediaSourceFactory(DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this, http))
+                .setLoadErrorHandlingPolicy(errorPolicy))
             .build()
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -322,6 +324,7 @@ class PlayerActivity : ComponentActivity() {
             addView(overlayView)
         })
         player.addListener(object : Player.Listener {
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) { tracksVersion++ }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 saver.removeCallbacks(showPause)
                 if (isPlaying) { if (overlay != null) closeOverlay() }
@@ -332,6 +335,7 @@ class PlayerActivity : ComponentActivity() {
         })
 
         liveIndex = intent.getIntExtra("live_index", -1)
+        subLang = appPrefs.subLang
         val url = intent.getStringExtra("url")
         when {
             url != null -> {
@@ -356,6 +360,7 @@ class PlayerActivity : ComponentActivity() {
         ca.sanjwad.tvplayer.stalker.PortalLog.add("player ▶ ${url.take(300)}")
         val item = MediaItem.Builder().setUri(url)
             .apply { if (asHls) setMimeType(MimeTypes.APPLICATION_M3U8) }
+            .setSubtitleConfigurations(externalSubs.toList())
             .build()
         if (startMs > 0) player.setMediaItem(item, startMs) else player.setMediaItem(item)
         player.prepare()
@@ -401,7 +406,7 @@ class PlayerActivity : ComponentActivity() {
     // ---------- pause screen & cast ----------
 
     private lateinit var overlayView: androidx.compose.ui.platform.ComposeView
-    /** null, "pause", "about", "cast", "live" (paused live channel) or "catchup". */
+    /** null, "pause", "about", "cast", "tracks", "live" (paused live channel) or "catchup". */
     private var overlay by androidx.compose.runtime.mutableStateOf<String?>(null)
     private val castNav by lazy {
         val year = intent.getStringExtra("year")?.takeIf { it.isNotBlank() }
@@ -419,6 +424,95 @@ class PlayerActivity : ComponentActivity() {
             lifecycleScope.launch {
                 liveNow = withContext(Dispatchers.IO) { runCatching { Session.client?.nowNext(ch)?.firstOrNull() }.getOrNull() }
             }
+        }
+    }
+
+    // ---------- subtitles & audio ----------
+
+    private var tracksVersion by androidx.compose.runtime.mutableIntStateOf(0)
+    private val externalSubs = mutableListOf<MediaItem.SubtitleConfiguration>()
+    private val appPrefs by lazy { Prefs(this) }
+    private var subLang by androidx.compose.runtime.mutableStateOf("en")
+    private var subSearch by androidx.compose.runtime.mutableStateOf<ca.sanjwad.tvplayer.ui.SubSearch>(ca.sanjwad.tvplayer.ui.SubSearch.Idle)
+    private val openSubs by lazy {
+        val key = appPrefs.osKey.ifBlank { BuildConfig.OPENSUBS_KEY }
+        if (key.isBlank()) null else ca.sanjwad.tvplayer.stalker.OpenSubs(key, appPrefs.osUser, appPrefs.osPass)
+    }
+
+    private fun langName(code: String?): String =
+        code?.takeIf { it.isNotBlank() && it != "und" }?.let { java.util.Locale.forLanguageTag(it).displayLanguage.ifBlank { it } } ?: "Unknown language"
+
+    /** Choices for the subtitles or audio list, from what the video actually contains. */
+    private fun trackOpts(type: Int): List<ca.sanjwad.tvplayer.ui.TrackOpt> = player.currentTracks.groups
+        .filter { it.type == type }
+        .flatMap { g ->
+            (0 until g.length).filter { g.isTrackSupported(it) }.map { i ->
+                val f = g.getTrackFormat(i)
+                val label = f.label?.takeIf { it.isNotBlank() } ?: langName(f.language)
+                val detail = buildList {
+                    if (f.label != null && f.language != null) add(langName(f.language))
+                    if (type == C.TRACK_TYPE_AUDIO && f.channelCount > 0)
+                        add(when (f.channelCount) { 1 -> "mono"; 2 -> "stereo"; 6 -> "5.1"; 8 -> "7.1"; else -> "${f.channelCount} ch" })
+                    if (type == C.TRACK_TYPE_TEXT && f.id?.startsWith("dl:") == true) add("downloaded")
+                    if (f.selectionFlags and C.SELECTION_FLAG_FORCED != 0) add("forced")
+                }.joinToString(" · ")
+                ca.sanjwad.tvplayer.ui.TrackOpt(label, detail, g.isTrackSelected(i)) {
+                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                        .setTrackTypeDisabled(type, false)
+                        .setOverrideForType(androidx.media3.common.TrackSelectionOverride(g.mediaTrackGroup, i))
+                        .build()
+                    tracksVersion++
+                }
+            }
+        }
+
+    private fun searchSubs() {
+        val os = openSubs ?: return
+        subSearch = ca.sanjwad.tvplayer.ui.SubSearch.Searching
+        val title = intent.getStringExtra("title").orEmpty()
+        val year = intent.getStringExtra("year").orEmpty()
+        val series = intent.getStringExtra("is_series") == "1"
+        val season = intent.getStringExtra("season")?.toIntOrNull()
+        val episode = intent.getStringExtra("episode")?.toIntOrNull()
+        lifecycleScope.launch {
+            val r = withContext(Dispatchers.IO) {
+                runCatching {
+                    val tmdbId = runCatching { if (series) Session.tmdb?.findTv(title, year) else Session.tmdb?.findMovie(title, year) }.getOrNull()
+                    os.search(tmdbId, ca.sanjwad.tvplayer.stalker.TitleMatch.queryName(title), year,
+                        if (series) season else null, if (series) episode else null, subLang)
+                }
+            }
+            subSearch = r.fold({ ca.sanjwad.tvplayer.ui.SubSearch.Results(it) },
+                { ca.sanjwad.tvplayer.ui.SubSearch.Failed(it.message ?: "Search failed.") })
+        }
+    }
+
+    private fun downloadSub(sub: ca.sanjwad.tvplayer.stalker.OpenSubs.Sub) {
+        val os = openSubs ?: return
+        val url = currentUrl ?: return
+        subSearch = ca.sanjwad.tvplayer.ui.SubSearch.Downloading(sub)
+        lifecycleScope.launch {
+            val r = withContext(Dispatchers.IO) { runCatching { os.download(sub, cacheDir) } }
+            r.onSuccess { file ->
+                externalSubs += MediaItem.SubtitleConfiguration.Builder(android.net.Uri.fromFile(file))
+                    .setMimeType(MimeTypes.APPLICATION_SUBRIP)
+                    .setLanguage(sub.lang.ifBlank { subLang })
+                    .setLabel("${langName(sub.lang.ifBlank { subLang })} (downloaded)")
+                    .setId("dl:${sub.fileId}")
+                    .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                    .build()
+                // Reload the same video at the same point with the subtitle attached, and switch it on.
+                val pos = player.currentPosition
+                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setPreferredTextLanguage(sub.lang.ifBlank { subLang })
+                    .build()
+                play(url, keepFormat = true, startMs = pos)
+                subSearch = ca.sanjwad.tvplayer.ui.SubSearch.Idle
+                closeOverlay()
+                toast("Subtitles on")
+            }.onFailure { subSearch = ca.sanjwad.tvplayer.ui.SubSearch.Failed(it.message ?: "Download failed.") }
         }
     }
 
@@ -464,7 +558,26 @@ class PlayerActivity : ComponentActivity() {
                         onCast = if (Session.tmdb != null && !isCatchup) ({ overlay = "cast" }) else null,
                         onBack = { closeOverlay(showControls = true) },
                         onAbout = if (Session.tmdb != null && !isCatchup) ({ overlay = "about" }) else null,
+                        onTracks = { overlay = "tracks" },
                     )
+                    "tracks" -> {
+                        @Suppress("UNUSED_EXPRESSION") tracksVersion
+                        ca.sanjwad.tvplayer.ui.TracksOverlay(
+                            subtitles = trackOpts(C.TRACK_TYPE_TEXT),
+                            subsOff = player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT) ||
+                                player.currentTracks.groups.none { it.type == C.TRACK_TYPE_TEXT && it.isSelected },
+                            onSubsOff = {
+                                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+                                tracksVersion++
+                            },
+                            audio = trackOpts(C.TRACK_TYPE_AUDIO),
+                            lang = subLang, onLang = { subLang = it; appPrefs.subLang = it; subSearch = ca.sanjwad.tvplayer.ui.SubSearch.Idle },
+                            download = if (openSubs != null && liveIndex < 0 && !isCatchup) subSearch else null,
+                            onSearch = { searchSubs() }, onPick = { downloadSub(it) },
+                            onClose = { overlay = "pause" },
+                        )
+                    }
                     "live" -> Session.channels.getOrNull(liveIndex)?.let { ch ->
                         val now = liveNow
                         ca.sanjwad.tvplayer.ui.LivePauseOverlay(ch, now,

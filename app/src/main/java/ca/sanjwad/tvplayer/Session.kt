@@ -38,6 +38,19 @@ class Prefs(ctx: Context) {
     var tmdbKey: String
         get() = sp.getString("tmdb_key", "").orEmpty()
         set(v) = sp.edit().putString("tmdb_key", v).apply()
+    var osKey: String
+        get() = sp.getString("os_key", "").orEmpty()
+        set(v) = sp.edit().putString("os_key", v).apply()
+    var osUser: String
+        get() = sp.getString("os_user", "").orEmpty()
+        set(v) = sp.edit().putString("os_user", v).apply()
+    var osPass: String
+        get() = sp.getString("os_pass", "").orEmpty()
+        set(v) = sp.edit().putString("os_pass", v).apply()
+    /** Preferred subtitle language (ISO 639-1), e.g. "en". */
+    var subLang: String
+        get() = sp.getString("sub_lang", "en").orEmpty()
+        set(v) = sp.edit().putString("sub_lang", v).apply()
     var omdbKey: String
         get() = sp.getString("omdb_key", "").orEmpty()
         set(v) = sp.edit().putString("omdb_key", v).apply()

@@ -193,6 +193,9 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
     var showLog by remember { mutableStateOf(false) }
     var tmdbKey by remember { mutableStateOf(prefs.tmdbKey) }
     var omdbKey by remember { mutableStateOf(prefs.omdbKey) }
+    var osKey by remember { mutableStateOf(prefs.osKey) }
+    var osUser by remember { mutableStateOf(prefs.osUser) }
+    var osPass by remember { mutableStateOf(prefs.osPass) }
     var err by remember { mutableStateOf<String?>(null) }
     // With a working login, the details stay locked until "Change login details" is pressed.
     var editing by remember { mutableStateOf(!hasSaved) }
@@ -443,9 +446,28 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
                     label = { Text("OMDb key") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
                 )
+                Spacer(Modifier.height(14.dp))
+                Text("OpenSubtitles (download subtitles)", fontSize = 15.sp, color = Color.White)
+                Text((if (ca.sanjwad.tvplayer.BuildConfig.OPENSUBS_KEY.isNotBlank()) "A built-in key is used; the key field is optional. " else
+                    "Free account and API key from opensubtitles.com. ") + "Logging in raises the daily download limit.", fontSize = 13.sp, color = TextDim)
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(value = osKey, onValueChange = { osKey = it.trim(); tmdbSaved = false },
+                    label = { Text("OpenSubtitles API key") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii))
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(value = osUser, onValueChange = { osUser = it.trim(); tmdbSaved = false },
+                        label = { Text("Username") }, singleLine = true, modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii))
+                    OutlinedTextField(value = osPass, onValueChange = { osPass = it; tmdbSaved = false },
+                        label = { Text("Password") }, singleLine = true, modifier = Modifier.weight(1f),
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+                }
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TvButton("Save keys", onClick = {
+                        prefs.osKey = osKey.trim(); prefs.osUser = osUser.trim(); prefs.osPass = osPass
                         prefs.omdbKey = omdbKey.trim()
                         Session.omdb = prefs.omdbKey.ifBlank { ca.sanjwad.tvplayer.BuildConfig.OMDB_KEY }
                             .takeIf { it.isNotBlank() }?.let { ca.sanjwad.tvplayer.stalker.OmdbClient(it) }
@@ -948,7 +970,8 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
         play(ep.cmd, ep.seriesParam, item.name, null, mapOf(
             "key" to "e:${ep.cmd}", "subtitle" to "S$sn E$en  ·  ${ep.title}",
             "poster" to (item.poster ?: ep.thumb), "series_id" to item.id,
-            "year" to item.year, "plot" to ep.plot.ifBlank { item.description }, "is_series" to "1"))
+            "year" to item.year, "plot" to ep.plot.ifBlank { item.description }, "is_series" to "1",
+            "season" to sn.toString(), "episode" to en.toString()))
     }
 
     LaunchedEffect(item.id) {

@@ -23,6 +23,7 @@ android {
         versionName = "0.1.$buildNumber"
         // Built-in TMDB key, supplied by the TMDB_KEY secret in GitHub Actions (never stored in the code).
         buildConfigField("String", "OMDB_KEY", "\"${(System.getenv("OMDB_KEY") ?: "").trim()}\"")
+        buildConfigField("String", "OPENSUBS_KEY", "\"${(System.getenv("OPENSUBS_KEY") ?: "").trim()}\"")
         buildConfigField("String", "TMDB_KEY", "\"${(System.getenv("TMDB_KEY") ?: "").trim()}\"")
     }
 

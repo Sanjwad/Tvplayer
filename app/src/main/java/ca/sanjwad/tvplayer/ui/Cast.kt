@@ -313,6 +313,7 @@ private fun PersonPage(personId: Int, onPick: (type: String, item: VodItem) -> U
 fun PauseOverlay(
     title: String, subtitle: String, plot: String, poster: String?,
     onResume: () -> Unit, onCast: (() -> Unit)?, onBack: () -> Unit, onAbout: (() -> Unit)? = null,
+    onTracks: (() -> Unit)? = null,
 ) {
     BackHandler(onBack = onBack)
     val fr = remember { FocusRequester() }
@@ -337,6 +338,7 @@ fun PauseOverlay(
                 Spacer(Modifier.height(20.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     TvButton("▶  Resume", onClick = onResume, modifier = Modifier.focusRequester(fr))
+                    if (onTracks != null) TvButton("Subtitles & audio", onClick = onTracks)
                     if (onAbout != null) TvButton("About", onClick = onAbout)
                     if (onCast != null) TvButton("Cast & crew", onClick = onCast)
                     TvButton("Seek / controls", onClick = onBack)
