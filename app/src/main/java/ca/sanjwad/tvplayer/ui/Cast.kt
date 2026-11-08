@@ -326,7 +326,7 @@ fun PauseOverlay(
                 }
                 Spacer(Modifier.width(28.dp))
             }
-            Column(Modifier.width(560.dp)) {
+            Column(Modifier.width(820.dp)) {
                 Text("Paused", fontSize = 14.sp, color = Accent, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(4.dp))
                 Text(title, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -338,10 +338,10 @@ fun PauseOverlay(
                 Spacer(Modifier.height(20.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     TvButton("▶  Resume", onClick = onResume, modifier = Modifier.focusRequester(fr))
-                    if (onTracks != null) TvButton("Subtitles & audio", onClick = onTracks)
+                    if (onTracks != null) TvButton("Subtitles", onClick = onTracks)
                     if (onAbout != null) TvButton("About", onClick = onAbout)
                     if (onCast != null) TvButton("Cast & crew", onClick = onCast)
-                    TvButton("Seek / controls", onClick = onBack)
+                    TvButton("Controls", onClick = onBack)
                 }
             }
         }
