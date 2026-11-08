@@ -600,14 +600,19 @@ class StalkerClient(
     }
 
     /** create_link for [cmd]; returns the address the portal gave back, or null. */
+    /** What the portal said to the last create_link that gave no address, for the Portal log. */
+    @Volatile private var lastLinkReply = ""
+
     private fun linkFor(cmd: String, series: String = ""): String? {
-        val reply = runCatching {
+        val reply = try {
             call(mapOf("type" to "vod", "action" to "create_link", "cmd" to cmd, "series" to series,
-                "forced_storage" to "undefined", "disable_ad" to "0", "download" to "0"))
-        }.getOrNull() ?: return null
+                "forced_storage" to "undefined", "disable_ad" to "0", "download" to "0", "force_ch_link_check" to "0"))
+        } catch (e: Exception) {
+            lastLinkReply = "${e.javaClass.simpleName} ${e.message.orEmpty()}".take(100); return null
+        }
         val js = reply.opt("js")
         val raw = when (js) { is JSONObject -> js.optString("cmd").clean(); is String -> js; else -> "" }
-        return directUrl(raw)
+        return directUrl(raw).also { if (it == null) lastLinkReply = js?.toString()?.take(100) ?: "(empty reply)" }
     }
 
     private fun playFiles(movieId: String, seasonId: String, episodeId: String, skip: String, log: MutableList<String>): String? {
@@ -616,32 +621,38 @@ class StalkerClient(
                 "season_id" to seasonId, "episode_id" to episodeId), maxPages = 2)
         }.onFailure { log += "• file list: ${it.message.orEmpty()}" }.getOrDefault(emptyList())
 
-        // Every way a box might ask for this title's video, in order.
+        // Every way a box might ask for this title's video, in order. The portal's file records
+        // (/media/file_<id>.mpg, best quality first) come first: that's what a MAG box plays.
         val tries = mutableListOf<Pair<String, () -> String?>>()
+        val later = mutableListOf<Pair<String, () -> String?>>()
+        val ep = episodeId.takeIf { it != "0" }.orEmpty()
+        fun quality(o: JSONObject): Int = Regex("\\d{3,4}").find(o.optString("quality") + " " + o.optString("name"))
+            ?.value?.toIntOrNull() ?: if (o.optString("quality").contains("4k", true)) 2160 else 0
         for (row in rows) {
-            val files = row.optJSONArray("files")?.let { arr -> (0 until arr.length()).mapNotNull { arr.optJSONObject(it) } }.orEmpty() + row
-            for (f in files) {
+            val inner = row.optJSONArray("files")?.let { arr -> (0 until arr.length()).mapNotNull { arr.optJSONObject(it) } }.orEmpty()
+            for (f in inner.sortedByDescending(::quality) + row) {
                 val id = f.optString("id").clean()
                 val url = f.optString("url").clean()
                 val cmd = f.optString("cmd").clean()
-                if (cmd.isNotBlank() && cmd != skip) {
-                    // Always ask the portal first, even for a ready-made address: on protected portals
-                    // create_link is what unlocks the stream ("Streamer protection system" 403 otherwise).
-                    tries += "link(cmd) $cmd" to { linkFor(cmd) }
-                    if (cmd.startsWith("http", true)) tries += "link(ffmpeg cmd)" to { linkFor("ffmpeg $cmd") }
-                    if (directUrl(cmd) != null) tries += "cmd as is" to { directUrl(cmd) }
-                }
-                if (id.isNotBlank() && f.has("video_id")) {
+                if (id.isNotBlank()) {
                     tries += "file_$id" to { linkFor("/media/file_$id.mpg") }
-                    tries += "file_$id+series" to { linkFor("/media/file_$id.mpg", episodeId.takeIf { it != "0" }.orEmpty()) }
+                    tries += "file_$id series=1" to { linkFor("/media/file_$id.mpg", "1") }
+                    if (ep.isNotBlank()) tries += "file_$id series=$ep" to { linkFor("/media/file_$id.mpg", ep) }
+                }
+                if (cmd.isNotBlank() && cmd != skip) {
+                    later += "link(cmd) ${cmd.take(50)}" to { linkFor(cmd) }
+                    if (cmd.startsWith("http", true)) later += "link(ffmpeg cmd)" to { linkFor("ffmpeg $cmd") }
+                    if (directUrl(cmd) != null) later += "cmd as is" to { directUrl(cmd) }
                 }
                 if (url.startsWith("http", true)) {
-                    tries += "link(url)" to { linkFor(url) }
-                    tries += "link(ffmpeg url)" to { linkFor("ffmpeg $url") }
-                    tries += "file url as is" to { url }
+                    later += "link(url)" to { linkFor(url) }
+                    later += "file url as is" to { url }
                 }
             }
         }
+        // Episode with no file records: the season as the file and the episode number as "series".
+        if (seasonId != "0" && ep.isNotBlank()) tries += "season file_$seasonId series=$ep" to { linkFor("/media/file_$seasonId.mpg", ep) }
+        tries += later
         if (tries.isEmpty()) { log += "• file list: (none)"; PortalLog.pinned = listOf("PLAY: no video files listed"); return null }
 
         watchdog(force = true)
@@ -650,7 +661,7 @@ class StalkerClient(
         val seen = HashSet<String>()
         for ((name, get) in tries) {
             val u = runCatching { get() }.getOrNull()
-            if (u == null) { summary += "  $name → portal gave no link"; continue }
+            if (u == null) { summary += "  $name → portal gave no link: $lastLinkReply"; continue }
             if (!seen.add(u)) { summary += "  $name → same link as before"; continue }
             if (firstUrl == null) firstUrl = u
             summary += "  $name → ${u.take(70)}"
