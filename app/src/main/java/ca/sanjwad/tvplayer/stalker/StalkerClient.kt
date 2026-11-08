@@ -141,7 +141,15 @@ class StalkerClient(
 
     // ---------- low level ----------
 
+    /** Portals throttle a MAC that fires many requests at once, so at most three go out together. */
+    private val gate = java.util.concurrent.Semaphore(3, true)
+
     private fun request(base: String, params: Map<String, String>): JSONObject {
+        gate.acquire()
+        try { return requestNow(base, params) } finally { gate.release() }
+    }
+
+    private fun requestNow(base: String, params: Map<String, String>): JSONObject {
         val url = base.toHttpUrl().newBuilder().apply {
             params.forEach { (k, v) -> addQueryParameter(k, v) }
             addQueryParameter("JsHttpRequest", "1-xml")
@@ -274,11 +282,14 @@ class StalkerClient(
     }
 
     private fun call(params: Map<String, String>): JSONObject {
-        if (api == null) connect()
+        if (api == null) synchronized(this) { if (api == null) connect() }
+        val used = token
         return try {
             request(api!!, params)
         } catch (e: AuthException) {
-            connect()
+            // Several rows load at once; only the first to hit an expired session logs in again,
+            // the rest just retry with the new token instead of each starting another login.
+            synchronized(this) { if (token == used || api == null) connect() }
             request(api!!, params)
         }
     }

@@ -356,8 +356,14 @@ object VodLoader {
 
     suspend fun row(s: VodState, categoryId: String) {
         if (s.rowItems[categoryId] != null) return
-        val list = withContext(Dispatchers.IO) {
-            runCatching { Session.client?.vodPage(s.type, categoryId, 1)?.items }.getOrNull()
+        // A failed request isn't an empty row: try again a couple of times before saying "Nothing here".
+        var list: List<VodItem>? = null
+        for (attempt in 0 until 3) {
+            list = withContext(Dispatchers.IO) {
+                runCatching { Session.client?.vodPage(s.type, categoryId, 1)?.items }.getOrNull()
+            }
+            if (list != null || s.rowItems[categoryId] != null) break
+            delay(1500L * (attempt + 1))
         }
         if (s.rowItems[categoryId] == null) s.rowItems[categoryId] = list.orEmpty().take(40)
     }
