@@ -108,7 +108,28 @@ class StalkerClient(
         return list.distinct()
     }
 
-    private val cookie get() = "mac=${mac.replace(":", "%3A")}; stb_lang=en; timezone=America%2FToronto"
+    private val sn get() = serial.trim().ifBlank { md5(mac).take(13) }
+
+    /** Ways portals expect the MAC in the cookie. The first is what a real MAG box sends; the rest are fallbacks. */
+    private val macFormats: List<Pair<String, (String) -> String>> = listOf(
+        "upper %3A" to { m: String -> m.uppercase().replace(":", "%3A") },
+        "upper" to { m: String -> m.uppercase() },
+        "lower %3a" to { m: String -> m.lowercase().replace(":", "%3a") },
+        "lower" to { m: String -> m.lowercase() },
+        "upper no colons" to { m: String -> m.uppercase().replace(":", "") },
+        "lower no colons" to { m: String -> m.lowercase().replace(":", "") },
+    )
+    @Volatile private var macFormat = 0
+
+    /** Cookies the portal set (PHPSESSID and friends), sent back on every request like a browser would. */
+    private val portalCookies = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private val cookie get() = buildString {
+        append("mac=").append(macFormats[macFormat].second(mac))
+        append("; sn=").append(sn)
+        append("; stb_lang=en; timezone=America%2FToronto")
+        portalCookies.forEach { (k, v) -> if (k !in setOf("mac", "sn", "stb_lang", "timezone")) append("; $k=$v") }
+    }
 
     /** Headers a MAG box sends when it fetches the video itself; some stream servers check them. */
     override fun streamHeaders(): Map<String, String> = buildMap {
@@ -145,17 +166,27 @@ class StalkerClient(
                 val body = r.body?.string().orEmpty()
                 val ms = System.currentTimeMillis() - t0
                 PortalLog.add("$what @$short → ${r.code} (${ms}ms) ${body.replace(token ?: "\u0000", "•••").take(600)}")
-                if (r.code == 401 || r.code == 403 || body.contains("Authorization failed", true)) {
+                r.headers("Set-Cookie").forEach { c ->
+                    val pair = c.substringBefore(';')
+                    val name = pair.substringBefore('=').trim()
+                    if (name.isNotEmpty() && pair.contains('=')) portalCookies[name] = pair.substringAfter('=').trim()
+                }
+                if (r.code == 401 || r.code == 403 || body.contains("Authorization failed", true) ||
+                    body.contains("access denied", true)) {
                     throw AuthException()
                 }
                 if (!r.isSuccessful) throw IOException("The portal replied with error ${r.code}.")
                 val start = body.indexOf('{')
                 if (start < 0) throw IOException("Unexpected reply from the portal.")
-                return try {
-                    JSONObject(body.substring(start))
+                val json = try {
+                    JSONObject(body.substring(start).trim().removeSuffix("*/").trim())
                 } catch (e: Exception) {
                     throw IOException("Couldn't read the portal's reply.")
                 }
+                // Expired session: the portal answers 200 but flags the token as not valid.
+                val nv = json.optJSONObject("js")?.opt("not_valid")
+                if (nv == 1 || nv == true || nv == "1" || nv == "true") throw AuthException()
+                return json
             }
         } catch (e: IOException) {
             if (e !is AuthException && e.message?.startsWith("The portal") != true && e.message?.startsWith("Unexpected") != true &&
@@ -167,7 +198,6 @@ class StalkerClient(
     }
 
     private fun profileParams(): Map<String, String> {
-        val sn = serial.trim().ifBlank { md5(mac).take(13) }
         // Blank device IDs are sent blank, like TiVimate does when they're "Not set": portals that
         // verify devices compare these with what the box sent the first time.
         val dev = deviceId.trim()
@@ -189,14 +219,23 @@ class StalkerClient(
     override fun connect() {
         val report = mutableListOf<String>()
         var refused = false
+        portalCookies.clear()
+        // Try the MAC format that worked last time first, then the others.
+        val order = listOf(macFormat) + macFormats.indices.filter { it != macFormat }
+        for ((round, fmt) in order.withIndex()) {
+        // Another MAC format only helps if the portal answered but wouldn't log us in.
+        if (round > 0 && !refused && report.none { it.endsWith("no login token") }) break
+        macFormat = fmt
+        if (round > 0) PortalLog.add("login: trying MAC as ${macFormats[fmt].first}")
         for (base in candidates) {
             val short = base.removePrefix(root).ifEmpty { "/" }
             try {
                 token = null
+                portalCookies.clear()
                 val js = request(base, mapOf("type" to "stb", "action" to "handshake", "token" to "", "prehash" to "0"))
                     .optJSONObject("js")
                 val t = js?.optString("token").orEmpty()
-                if (t.isBlank()) { report += "$short: no login token"; continue }
+                if (t.isBlank()) { if (round == 0) report += "$short: no login token"; continue }
                 token = t
                 api = base
                 val profile = request(base, profileParams()).optJSONObject("js")
@@ -210,6 +249,7 @@ class StalkerClient(
                             "Copy them exactly from TiVimate (Settings → Playlists → Stalker Portal parameters)." else ""
                     throw IOException("The portal says:\n$text$hint")
                 }
+                if (round > 0) PortalLog.add("login: worked with MAC as ${macFormats[fmt].first}")
                 startWatchdog()
                 runCatching {
                     val acc = request(base, mapOf("type" to "account_info", "action" to "get_main_info")).optJSONObject("js")
@@ -218,14 +258,16 @@ class StalkerClient(
                 }
                 return
             } catch (e: AuthException) {
-                refused = true; report += "$short: MAC refused"
+                refused = true; if (round == 0) report += "$short: MAC refused"
             } catch (e: IOException) {
                 if (e.message?.startsWith("The portal says") == true) { api = null; throw e }
-                report += "$short: ${e.message.orEmpty()}".trim()
+                if (round == 0) report += "$short: ${e.message.orEmpty()}".trim()
             } catch (e: Exception) {
-                report += "$short: ${e.javaClass.simpleName} ${e.message.orEmpty()}".trim()
+                if (round == 0) report += "$short: ${e.javaClass.simpleName} ${e.message.orEmpty()}".trim()
             }
         }
+        }
+        macFormat = order.first()
         api = null
         val head = if (refused) "The portal refused this MAC address ($mac)." else "Couldn't log in to $root."
         throw IOException(head + "\n\n" + report.joinToString("\n"))
