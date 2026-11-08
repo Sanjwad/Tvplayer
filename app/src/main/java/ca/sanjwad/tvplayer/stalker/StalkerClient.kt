@@ -624,7 +624,13 @@ class StalkerClient(
                 val id = f.optString("id").clean()
                 val url = f.optString("url").clean()
                 val cmd = f.optString("cmd").clean()
-                if (cmd.isNotBlank() && cmd != skip) tries += "cmd $cmd" to { directUrl(cmd) ?: linkFor(cmd) }
+                if (cmd.isNotBlank() && cmd != skip) {
+                    // Always ask the portal first, even for a ready-made address: on protected portals
+                    // create_link is what unlocks the stream ("Streamer protection system" 403 otherwise).
+                    tries += "link(cmd) $cmd" to { linkFor(cmd) }
+                    if (cmd.startsWith("http", true)) tries += "link(ffmpeg cmd)" to { linkFor("ffmpeg $cmd") }
+                    if (directUrl(cmd) != null) tries += "cmd as is" to { directUrl(cmd) }
+                }
                 if (id.isNotBlank() && f.has("video_id")) {
                     tries += "file_$id" to { linkFor("/media/file_$id.mpg") }
                     tries += "file_$id+series" to { linkFor("/media/file_$id.mpg", episodeId.takeIf { it != "0" }.orEmpty()) }
@@ -683,9 +689,6 @@ class StalkerClient(
         }
 
         val t = if (type == "series") "vod" else type
-        // A cmd that's already a real address needs no create_link round trip.
-        if (t != "itv") directUrl(cmd)?.let { return it }
-
         requestLink(t, cmd, series, log)?.let { return it }
         // Portals differ on episodes: some want the episode number, some only the episode's own cmd.
         if (series.isNotBlank()) requestLink(t, cmd, "", log)?.let { return it }
@@ -700,7 +703,8 @@ class StalkerClient(
             if (series.isNotBlank()) requestLink("series", cmd, "", log)?.let { return it }
         }
 
-        if (t == "itv") directUrl(cmd)?.let { return it }
+        // Last resort: the address in the cmd itself, without the portal's say-so.
+        directUrl(cmd)?.let { return it }
         throw IOException(
             "The portal didn't return a stream for this.\n" + log.joinToString("\n") +
                 "\n\nSettings → Portal log has the full replies."
