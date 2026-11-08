@@ -617,6 +617,7 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
 
 private const val SEARCH_ID = "__search"
 private const val FAV_ID = "__fav"
+private const val CATCHUP_ID = "__catchup"
 private const val LIST_ID = "__list"
 private const val EDIT_ID = "__edit"
 private val Gold = Color(0xFFFFC94D)
@@ -718,12 +719,21 @@ fun LiveScreen(s: LiveState) {
                         else s.all.filter { it.name.lowercase().contains(q) || it.number.toString() == q }
                     }
                     FAV_ID -> { val byId = s.all.associateBy { it.id }; favs.map { byId[it.id] ?: it } }
+                    CATCHUP_ID -> s.all.filter { it.archiveDays > 0 }
                     "*" -> { val hid = Library.hidden["live"].orEmpty(); if (hid.isEmpty()) s.all else s.all.filter { it.genreId !in hid } }
                     else -> s.all.filter { it.genreId == s.genre }
                 }
             }
+            val catchupCount = remember(s.all) { s.all.count { it.archiveDays > 0 } }
             val side = listOf(Genre(SEARCH_ID, "🔍  Search"), Genre(FAV_ID, "★  Favourites")) +
+                // Every channel with catch-up in one place (the test build shows it even when there are none).
+                (if (catchupCount > 0 || ca.sanjwad.tvplayer.BuildConfig.TEST_BUILD) listOf(Genre(CATCHUP_ID, "↺  Catch-up ($catchupCount)")) else emptyList()) +
                 s.genres.filter { it.id == "*" || it.id !in hiddenLive }
+            var catchupFor by remember { mutableStateOf<ca.sanjwad.tvplayer.stalker.Channel?>(null) }
+            catchupFor?.let { ch ->
+                CatchupScreen(ch, onPlay = { p -> Catchup.play(ctx, ch, p) }, onClose = { catchupFor = null })
+                return
+            }
             Row(Modifier.fillMaxSize()) {
                 SideList(side, s.genre, 280) { if (it.id != SEARCH_ID) s.query = ""; s.genre = it.id }
                 Spacer(Modifier.width(16.dp))
@@ -781,12 +791,22 @@ fun LiveScreen(s: LiveState) {
                                             modifier = Modifier.size(width = 56.dp, height = 34.dp), contentScale = ContentScale.Fit)
                                         Spacer(Modifier.width(14.dp))
                                         Column(Modifier.weight(1f)) {
-                                            Text(c.name, fontSize = 17.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(c.name, fontSize = 17.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f, fill = false))
+                                                if (c.archiveDays > 0) Text("  ↺ ${c.archiveDays}d", fontSize = 13.sp, color = LogoYellow)
+                                            }
                                             ChannelGuide(c)
                                         }
                                     }
                                 }
                                 Spacer(Modifier.width(6.dp))
+                                if (c.archiveDays > 0) {
+                                    FocusBox(onClick = { catchupFor = c }, modifier = Modifier.size(width = 56.dp, height = 50.dp)) {
+                                        Text("↺", Modifier.align(Alignment.Center), fontSize = 24.sp, color = LogoYellow)
+                                    }
+                                    Spacer(Modifier.width(6.dp))
+                                }
                                 val fav = favs.any { it.id == c.id }
                                 FocusBox(onClick = { Library.toggleFavourite(c) }, modifier = Modifier.size(width = 56.dp, height = 50.dp)) {
                                     Text(if (fav) "★" else "☆", Modifier.align(Alignment.Center), fontSize = 24.sp,
