@@ -719,7 +719,7 @@ fun LiveScreen(s: LiveState) {
                         }
                     }
                     if (s.guideView && s.genre != SEARCH_ID) {
-                        GuideGrid(shown) { index ->
+                        GuideGrid(shown, onCatchup = { ch, p -> Catchup.play(ctx, ch, p) }) { index ->
                             Session.channels = shown
                             ctx.startActivity(Intent(ctx, PlayerActivity::class.java).putExtra("live_index", index))
                         }

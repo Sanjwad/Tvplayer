@@ -11,6 +11,8 @@ data class Channel(
     val genreId: String,
     /** The channel's id in the provider's full TV guide (XMLTV), if any. */
     val epgId: String = "",
+    /** Days of catch-up the provider keeps for this channel (0 = none, -1 = not known yet). */
+    val archiveDays: Int = 0,
 )
 
 data class VodItem(
@@ -33,7 +35,7 @@ data class Episode(
 )
 
 /** One TV-guide entry; times are epoch milliseconds. */
-data class Programme(val title: String, val description: String, val start: Long, val end: Long)
+data class Programme(val title: String, val description: String, val start: Long, val end: Long, val archive: Boolean = false)
 
 data class Page(val items: List<VodItem>, val totalItems: Int)
 

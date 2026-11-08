@@ -107,7 +107,12 @@ class XtreamClient(
         val status = info.str("status")
         if (status.isNotEmpty() && !status.equals("Active", true)) throw IOException("Account status: $status")
         expiry = info.str("exp_date")
+        serverTz = js.optJSONObject("server_info")?.str("timezone").orEmpty()
     }
+
+    /** The server's time zone: catch-up addresses use the server's local time. */
+    @Volatile var serverTz: String = ""
+        private set
 
     override fun streamHeaders(): Map<String, String> = emptyMap()
 
@@ -127,9 +132,9 @@ class XtreamClient(
     override fun liveChannels(): List<Channel> {
         val file = cacheFile("live_channels")
         // Older saved lists lack guide ids; refetch those once.
-        readChannels(file, maxAgeMs = 6 * HOUR)?.takeIf { l -> l.any { it.epgId.isNotEmpty() } }?.let { return it }
+        readChannels(file, maxAgeMs = 6 * HOUR)?.takeIf { l -> l.any { it.epgId.isNotEmpty() } && l.none { it.archiveDays < 0 } }?.let { return it }
         return try {
-            streamObjects("action" to "get_live_streams", fields = setOf("stream_id", "name", "num", "stream_icon", "category_id", "epg_channel_id"))
+            streamObjects("action" to "get_live_streams", fields = setOf("stream_id", "name", "num", "stream_icon", "category_id", "epg_channel_id", "tv_archive", "tv_archive_duration"))
                 .mapNotNull {
                     val id = it.s("stream_id").ifEmpty { return@mapNotNull null }
                     Channel(
@@ -140,6 +145,7 @@ class XtreamClient(
                         logo = it.im("stream_icon"),
                         genreId = it.s("category_id"),
                         epgId = it.s("epg_channel_id"),
+                        archiveDays = if (it.s("tv_archive") == "1") (it.s("tv_archive_duration").toIntOrNull() ?: 1).coerceAtLeast(1) else 0,
                     )
                 }.sortedBy { if (it.number > 0) it.number else Int.MAX_VALUE }
                 .also { writeChannels(file, it) }
@@ -152,7 +158,7 @@ class XtreamClient(
         f ?: return
         runCatching {
             val a = JSONArray()
-            list.forEach { a.put(JSONArray().put(it.id).put(it.name).put(it.number).put(it.logo ?: "").put(it.genreId).put(it.epgId)) }
+            list.forEach { a.put(JSONArray().put(it.id).put(it.name).put(it.number).put(it.logo ?: "").put(it.genreId).put(it.epgId).put(it.archiveDays)) }
             f.writeText(a.toString())
         }
     }
@@ -165,7 +171,7 @@ class XtreamClient(
                 val r = a.getJSONArray(i)
                 val id = r.getString(0)
                 Channel(id, r.getString(1), r.optInt(2), "$root/live/$user/$pass/$id.m3u8", r.optString(3).ifBlank { null },
-                    r.optString(4), r.optString(5))
+                    r.optString(4), r.optString(5), if (r.length() > 6) r.optInt(6) else -1)
             }
         }.getOrNull()
     }
@@ -619,6 +625,41 @@ class XtreamClient(
     }
 
     override fun episodes(type: String, item: VodItem, season: Season): List<Episode> = season.episodes.orEmpty()
+
+    // ---------- catch-up ----------
+
+    override fun catchupProgrammes(channel: Channel): List<Programme> {
+        if (channel.archiveDays <= 0) return emptyList()
+        val js = api("action" to "get_simple_data_table", "stream_id" to channel.id) as? JSONObject ?: return emptyList()
+        val arr = js.optJSONArray("epg_listings") ?: return emptyList()
+        val now = System.currentTimeMillis()
+        val oldest = now - channel.archiveDays * 24 * HOUR
+        return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.mapNotNull { o ->
+            val s = o.optString("start_timestamp").toLongOrNull()?.times(1000) ?: return@mapNotNull null
+            val e = o.optString("stop_timestamp").toLongOrNull()?.times(1000) ?: return@mapNotNull null
+            if (e <= s || s < oldest || s > now) return@mapNotNull null
+            Programme(
+                title = b64(o.str("title")).ifBlank { o.str("title") },
+                description = b64(o.str("description")),
+                start = s, end = e,
+                // Older servers leave has_archive out; trust the channel's archive window then.
+                archive = o.optString("has_archive", "1") == "1" || e > now,
+            )
+        }.sortedBy { it.start }.distinctBy { it.start }
+    }
+
+    override fun catchupUrls(channel: Channel, start: Long, end: Long): List<String> {
+        val tz = runCatching { java.util.TimeZone.getTimeZone(serverTz.ifBlank { "UTC" }) }.getOrDefault(java.util.TimeZone.getTimeZone("UTC"))
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd:HH-mm", java.util.Locale.US).apply { timeZone = tz }
+        val startTxt = fmt.format(java.util.Date(start))
+        // Whole programme, plus a couple of minutes either side in case it starts or ends late.
+        val mins = (((end - start) / 60_000L) + 3).coerceIn(5, 600)
+        return listOf(
+            "$root/timeshift/$user/$pass/$mins/$startTxt/${channel.id}.m3u8",
+            "$root/timeshift/$user/$pass/$mins/$startTxt/${channel.id}.ts",
+            "$root/streaming/timeshift.php?username=$user&password=$pass&stream=${channel.id}&start=$startTxt&duration=$mins",
+        )
+    }
 
     override fun createLink(type: String, cmd: String, series: String, movieId: String?): String {
         if (cmd.startsWith("http", true)) return cmd

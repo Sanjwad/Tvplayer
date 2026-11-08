@@ -48,7 +48,7 @@ private const val SPAN = 150 * MIN // 2½ hours on screen
 
 /** TiVimate-style programme grid: channels down the side, programmes across time. */
 @Composable
-fun GuideGrid(channels: List<Channel>, onPlay: (index: Int) -> Unit) {
+fun GuideGrid(channels: List<Channel>, onCatchup: ((Channel, Programme) -> Unit)? = null, onPlay: (index: Int) -> Unit) {
     val version = Session.guideVersion
     var windowStart by remember { mutableLongStateOf(System.currentTimeMillis() / SLOT * SLOT) }
     var focused by remember { mutableStateOf<Pair<Channel, Programme?>?>(null) }
@@ -123,12 +123,19 @@ fun GuideGrid(channels: List<Channel>, onPlay: (index: Int) -> Unit) {
                                     AsyncImage(model = ch.logo, contentDescription = null, modifier = Modifier.size(width = 34.dp, height = 24.dp),
                                         contentScale = ContentScale.Fit)
                                     Spacer(Modifier.width(6.dp))
-                                    Text(ch.name, fontSize = 12.sp, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Text(ch.name, fontSize = 12.sp, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f))
+                                    if (ch.archiveDays > 0) Text("↺", fontSize = 13.sp, color = LogoYellow)
                                 }
                             }
                             Spacer(Modifier.width(8.dp))
-                            ProgrammeRow(progs, windowStart, windowEnd, perMin, timeW,
-                                onFocus = { p -> focused = ch to p }, onClick = { onPlay(index) })
+                            ProgrammeRow(progs, windowStart, windowEnd, perMin, timeW, catchup = ch.archiveDays > 0,
+                                onFocus = { p -> focused = ch to p }, onClick = { p ->
+                                    // Finished programme on a catch-up channel: watch it from the start.
+                                    if (p != null && onCatchup != null && ch.archiveDays > 0 && p.end <= System.currentTimeMillis() &&
+                                        p.start >= System.currentTimeMillis() - ch.archiveDays * 24 * 60 * MIN) onCatchup(ch, p)
+                                    else onPlay(index)
+                                })
                         }
                     }
                 }
@@ -139,12 +146,12 @@ fun GuideGrid(channels: List<Channel>, onPlay: (index: Int) -> Unit) {
 
 @Composable
 private fun ProgrammeRow(
-    progs: List<Programme>?, from: Long, to: Long, perMin: Dp, totalW: Dp,
-    onFocus: (Programme?) -> Unit, onClick: () -> Unit,
+    progs: List<Programme>?, from: Long, to: Long, perMin: Dp, totalW: Dp, catchup: Boolean,
+    onFocus: (Programme?) -> Unit, onClick: (Programme?) -> Unit,
 ) {
     val now = System.currentTimeMillis()
     if (progs.isNullOrEmpty()) {
-        FocusBox(onClick = onClick, modifier = Modifier.width(totalW).height(48.dp), shape = RoundedCornerShape(6.dp),
+        FocusBox(onClick = { onClick(null) }, modifier = Modifier.width(totalW).height(48.dp), shape = RoundedCornerShape(6.dp),
             onFocus = { onFocus(null) }) {
             Text(if (progs == null) "…" else "No guide", Modifier.align(Alignment.CenterStart).padding(horizontal = 10.dp),
                 fontSize = 12.sp, color = TextDim)
@@ -159,11 +166,12 @@ private fun ProgrammeRow(
             if (s > cursor) Spacer(Modifier.width(perMin * ((s - cursor) / MIN).toFloat()))
             val w = perMin * ((e - s) / MIN).toFloat()
             val live = now in p.start until p.end
-            FocusBox(onClick = onClick, modifier = Modifier.width(maxOf(w - 2.dp, 6.dp)).height(48.dp),
+            FocusBox(onClick = { onClick(p) }, modifier = Modifier.width(maxOf(w - 2.dp, 6.dp)).height(48.dp),
                 selected = live, shape = RoundedCornerShape(6.dp), onFocus = { onFocus(p) }) {
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
                     Text(p.title, fontSize = 12.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(clockTime(p.start), fontSize = 10.sp, color = TextDim, maxLines = 1)
+                    Text(clockTime(p.start) + if (catchup && p.end <= now) "  ↺ catch-up" else "", fontSize = 10.sp,
+                        color = if (catchup && p.end <= now) LogoYellow else TextDim, maxLines = 1)
                 }
             }
             Spacer(Modifier.width(2.dp))

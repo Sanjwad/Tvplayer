@@ -259,6 +259,12 @@ class PlayerActivity : ComponentActivity() {
                     cause = cause.cause
                 }
                 val url = currentUrl
+                // Catch-up: servers differ on which timeshift address works, so try the next one.
+                if (liveIndex < 0 && !everReady && fallbackUrls.isNotEmpty()) {
+                    asHls = false
+                    play(fallbackUrls.removeAt(0), keepFormat = true)
+                    return
+                }
                 // Only try the HLS fallback when the video never started; a mid-stream error is just a blip.
                 if (url != null && !asHls && code == 0 && !(liveIndex < 0 && everReady) &&
                     (error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
@@ -320,7 +326,7 @@ class PlayerActivity : ComponentActivity() {
                 saver.removeCallbacks(showPause)
                 if (isPlaying) { if (overlay != null) closeOverlay() }
                 // Paused by you (not buffering): show the pause screen after a moment.
-                else if (liveIndex < 0 && !player.playWhenReady && player.playbackState == Player.STATE_READY)
+                else if ((liveIndex < 0 || liveChannelHasCatchup()) && !player.playWhenReady && player.playbackState == Player.STATE_READY)
                     saver.postDelayed(showPause, 1200)
             }
         })
@@ -331,7 +337,8 @@ class PlayerActivity : ComponentActivity() {
             url != null -> {
                 resumeKey = intent.getStringExtra("key")
                 view.controllerAutoShow = true
-                asHls = prefs.getBoolean("vod_hls", false)
+                fallbackUrls.addAll(intent.getStringArrayListExtra("fallback_urls").orEmpty())
+                asHls = if (isCatchup) false else prefs.getBoolean("vod_hls", false)
                 play(url, keepFormat = true)
             }
             liveIndex >= 0 -> {
@@ -394,7 +401,7 @@ class PlayerActivity : ComponentActivity() {
     // ---------- pause screen & cast ----------
 
     private lateinit var overlayView: androidx.compose.ui.platform.ComposeView
-    /** null, "pause", "about" or "cast". */
+    /** null, "pause", "about", "cast", "live" (paused live channel) or "catchup". */
     private var overlay by androidx.compose.runtime.mutableStateOf<String?>(null)
     private val castNav by lazy {
         val year = intent.getStringExtra("year")?.takeIf { it.isNotBlank() }
@@ -403,8 +410,25 @@ class PlayerActivity : ComponentActivity() {
         ca.sanjwad.tvplayer.ui.CastNav(intent.getStringExtra("title").orEmpty(), year, series)
     }
     private val showPause = Runnable {
-        if (liveIndex < 0 && !player.isPlaying && !player.playWhenReady && overlay == null) openOverlay("pause")
+        if (player.isPlaying || player.playWhenReady || overlay != null) return@Runnable
+        if (liveIndex < 0) openOverlay("pause")
+        else if (liveChannelHasCatchup()) {
+            val ch = Session.channels.getOrNull(liveIndex) ?: return@Runnable
+            liveNow = null
+            openOverlay("live")
+            lifecycleScope.launch {
+                liveNow = withContext(Dispatchers.IO) { runCatching { Session.client?.nowNext(ch)?.firstOrNull() }.getOrNull() }
+            }
+        }
     }
+
+    // ---------- catch-up ----------
+
+    private val fallbackUrls = mutableListOf<String>()
+    private val isCatchup by lazy { intent.getStringExtra("catchup") == "1" }
+    private var liveNow by androidx.compose.runtime.mutableStateOf<ca.sanjwad.tvplayer.stalker.Programme?>(null)
+
+    private fun liveChannelHasCatchup() = liveIndex >= 0 && (Session.channels.getOrNull(liveIndex)?.archiveDays ?: 0) > 0
 
     private fun openOverlay(kind: String) {
         overlay = kind
@@ -436,10 +460,24 @@ class PlayerActivity : ComponentActivity() {
                         plot = intent.getStringExtra("plot").orEmpty(),
                         poster = intent.getStringExtra("poster"),
                         onResume = { closeOverlay(); player.play() },
-                        onCast = if (Session.tmdb != null) ({ overlay = "cast" }) else null,
+                        // Catch-up is a TV programme, not a film: TMDB would guess wrongly.
+                        onCast = if (Session.tmdb != null && !isCatchup) ({ overlay = "cast" }) else null,
                         onBack = { closeOverlay(showControls = true) },
-                        onAbout = if (Session.tmdb != null) ({ overlay = "about" }) else null,
+                        onAbout = if (Session.tmdb != null && !isCatchup) ({ overlay = "about" }) else null,
                     )
+                    "live" -> Session.channels.getOrNull(liveIndex)?.let { ch ->
+                        val now = liveNow
+                        ca.sanjwad.tvplayer.ui.LivePauseOverlay(ch, now,
+                            onResume = { closeOverlay(); playLive(liveIndex) },
+                            onStartOver = if (now != null) ({ ca.sanjwad.tvplayer.ui.Catchup.play(this@PlayerActivity, ch, now) }) else null,
+                            onCatchup = { overlay = "catchup" },
+                            onBack = { closeOverlay(showControls = true) })
+                    }
+                    "catchup" -> Session.channels.getOrNull(liveIndex)?.let { ch ->
+                        ca.sanjwad.tvplayer.ui.CatchupScreen(ch,
+                            onPlay = { p -> ca.sanjwad.tvplayer.ui.Catchup.play(this@PlayerActivity, ch, p) },
+                            onClose = { overlay = "live" })
+                    }
                     "about" -> ca.sanjwad.tvplayer.ui.AboutPage(
                         ca.sanjwad.tvplayer.ui.AboutNav(castNav.title, castNav.year, castNav.isSeries),
                         onClose = { overlay = "pause" }, onCast = { overlay = "cast" },
@@ -478,9 +516,9 @@ class PlayerActivity : ComponentActivity() {
         // Play on the remote while the pause screen is up: just resume.
         if (overlay != null && event.action == KeyEvent.ACTION_DOWN &&
             (event.keyCode == KeyEvent.KEYCODE_MEDIA_PLAY || event.keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)) {
-            closeOverlay(); player.play(); return true
+            closeOverlay(); if (liveIndex >= 0) playLive(liveIndex) else player.play(); return true
         }
-        if (liveIndex >= 0 && event.action == KeyEvent.ACTION_DOWN && !view.isControllerFullyVisible) {
+        if (liveIndex >= 0 && overlay == null && event.action == KeyEvent.ACTION_DOWN && !view.isControllerFullyVisible) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> {
                     playLive(liveIndex + 1); return true

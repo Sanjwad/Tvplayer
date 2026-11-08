@@ -17,6 +17,12 @@ interface IptvSource {
     /** Guide entries overlapping [from, to) from the full guide, if it has been downloaded. */
     fun programmes(channel: Channel, from: Long, to: Long): List<Programme> = emptyList()
 
+    /** Past programmes you can watch again on a catch-up channel, newest last (with [Programme.archive] set). */
+    fun catchupProgrammes(channel: Channel): List<Programme> = emptyList()
+
+    /** Addresses to try, in order, for a past programme on a catch-up channel. */
+    fun catchupUrls(channel: Channel, start: Long, end: Long): List<String> = emptyList()
+
     /** Download the full TV guide if it is missing or old. Safe to call repeatedly. */
     fun ensureGuide() {}
 
