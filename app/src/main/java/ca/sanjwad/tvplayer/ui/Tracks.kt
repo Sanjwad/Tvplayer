@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,7 +60,14 @@ fun TracksOverlay(
 ) {
     BackHandler(onBack = onClose)
     val fr = remember { FocusRequester() }
+    val dlFr = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(100); runCatching { fr.requestFocus() } }
+    // The Search button disappears when results (or an error) arrive: put the cursor on what replaced it.
+    LaunchedEffect(download) {
+        if (download is SubSearch.Results || download is SubSearch.Failed || download is SubSearch.Idle) {
+            delay(120); runCatching { dlFr.requestFocus() }
+        }
+    }
     Box(Modifier.fillMaxSize().background(Color(0x66000000)), contentAlignment = Alignment.CenterEnd) {
         LazyColumn(
             Modifier.width(560.dp).fillMaxHeight().background(Color(0xF20E1218)).padding(horizontal = 24.dp, vertical = 20.dp),
@@ -87,21 +95,22 @@ fun TracksOverlay(
                     Spacer(Modifier.height(6.dp))
                 }
                 when (download) {
-                    is SubSearch.Idle -> item { TvButton("Search for ${SUB_LANGS.firstOrNull { it.first == lang }?.second ?: lang} subtitles", onClick = onSearch) }
+                    is SubSearch.Idle -> item { TvButton("Search for ${SUB_LANGS.firstOrNull { it.first == lang }?.second ?: lang} subtitles", onClick = onSearch,
+                        modifier = Modifier.focusRequester(dlFr)) }
                     is SubSearch.Searching -> item { Text("Searching…", fontSize = 14.sp, color = TextDim) }
                     is SubSearch.Downloading -> item { Text("Downloading “${download.sub.release.take(60)}”…", fontSize = 14.sp, color = TextDim) }
                     is SubSearch.Failed -> item {
                         Text(download.message, fontSize = 14.sp, color = ErrorRed)
                         Spacer(Modifier.height(6.dp))
-                        TvButton("Try again", onClick = onSearch)
+                        TvButton("Try again", onClick = onSearch, modifier = Modifier.focusRequester(dlFr))
                     }
                     is SubSearch.Results -> {
                         if (download.list.isEmpty()) item { Text("No subtitles found in this language.", fontSize = 14.sp, color = TextDim) }
-                        items(download.list) { s ->
+                        itemsIndexed(download.list) { i, s ->
                             Row1(s.release.ifBlank { "Subtitle ${s.fileId}" },
                                 listOfNotNull("${s.downloads} downloads", if (s.hearingImpaired) "SDH" else null,
                                     if (s.machine) "machine-translated" else null).joinToString(" · "),
-                                false, Modifier) { onPick(s) }
+                                false, if (i == 0) Modifier.focusRequester(dlFr) else Modifier) { onPick(s) }
                         }
                     }
                 }
