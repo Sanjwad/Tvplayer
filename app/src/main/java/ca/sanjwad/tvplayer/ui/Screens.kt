@@ -44,6 +44,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -989,6 +994,39 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
     var msg by remember { mutableStateOf<String?>(null) }
     val fr = remember { FocusRequester() }
     val last = Library.watched[item.id]
+    var menu by remember { mutableStateOf<Pair<String, List<Pair<String, () -> Unit>>>?>(null) }
+
+    /** The furthest point before season [sn] (end of the previous season), or null if it's the first. */
+    fun beforeSeason(sn: Int): Pair<Int, Int>? = seasons.orEmpty()
+        .mapIndexed { i, s -> Library.seasonNumber(s, i) }.filter { it < sn }.maxOrNull()
+        ?.let { it to Library.WHOLE_SEASON }
+
+    fun startOver(): Pair<String, () -> Unit>? =
+        if (last != null) "Start the show over" to { Library.setWatched(item.id, null) } else null
+
+    fun episodeMenu(s: Season, si: Int, eps: List<Episode>, ep: Episode, ei: Int) {
+        val sn = Library.seasonNumber(s, si); val en = Library.episodeNumber(ep, ei)
+        val seen = last != null && (sn < last.first || (sn == last.first && en <= last.second))
+        val before = eps.mapIndexed { i, e -> Library.episodeNumber(e, i) }.filter { it < en }.maxOrNull()
+            ?.let { sn to it } ?: beforeSeason(sn)
+        val sName = s.name.ifBlank { "Season $sn" }
+        menu = "S$sn E$en  ·  ${ep.title}" to listOfNotNull(
+            "✓  Watched up to here" to { Library.setWatched(item.id, sn to en) },
+            "✓  Watched all of $sName" to { Library.setWatched(item.id, sn to Library.WHOLE_SEASON) },
+            if (seen) "Not watched from here on" to { Library.setWatched(item.id, before) } else null,
+            startOver(),
+        )
+    }
+
+    fun seasonMenu(s: Season, si: Int) {
+        val sn = Library.seasonNumber(s, si)
+        val sName = s.name.ifBlank { "Season $sn" }
+        menu = sName to listOfNotNull(
+            "✓  Watched all of $sName" to { Library.setWatched(item.id, sn to Library.WHOLE_SEASON) },
+            if (last != null && last.first >= sn) "Not watched from $sName on" to { Library.setWatched(item.id, beforeSeason(sn)) } else null,
+            startOver(),
+        )
+    }
 
     fun play(cmd: String, series: String, title: String, movieId: String? = null, extras: Map<String, String?> = emptyMap()) {
         msg = "Starting…"
@@ -1142,13 +1180,16 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
                     } else {
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             itemsIndexed(ss) { i, s ->
-                                FocusBox(onClick = { seasonIdx = i }, selected = i == seasonIdx, shape = RoundedCornerShape(20.dp)) {
+                                FocusBox(onClick = { seasonIdx = i }, selected = i == seasonIdx, shape = RoundedCornerShape(20.dp),
+                                    onLongClick = { seasonMenu(s, i) }) {
                                     Text(s.name.ifBlank { "Season ${i + 1}" },
                                         Modifier.padding(horizontal = 16.dp, vertical = 7.dp), fontSize = 14.sp, color = Color.White)
                                 }
                             }
                         }
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.height(6.dp))
+                        Text("Hold OK on an episode or season to mark it watched.", color = TextDim, fontSize = 12.sp)
+                        Spacer(Modifier.height(8.dp))
                         val eps = episodes
                         val cur = ss.getOrNull(seasonIdx)
                         when {
@@ -1159,7 +1200,8 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
                                     val sn = Library.seasonNumber(cur, seasonIdx)
                                     val en = Library.episodeNumber(ep, ei)
                                     val seen = last != null && (sn < last.first || (sn == last.first && en <= last.second))
-                                    FocusBox(onClick = { playEpisode(cur, seasonIdx, ep, ei) }, modifier = Modifier.fillMaxWidth()) {
+                                    FocusBox(onClick = { playEpisode(cur, seasonIdx, ep, ei) }, modifier = Modifier.fillMaxWidth(),
+                                        onLongClick = { episodeMenu(cur, seasonIdx, eps, ep, ei) }) {
                                         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.Top) {
                                             Box(Modifier.width(176.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(6.dp)).background(Bg)) {
                                                 AsyncImage(model = ep.thumb ?: item.backdrop ?: item.poster, contentDescription = null,
@@ -1194,6 +1236,41 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
                             }
                         }
                     }
+                }
+            }
+        }
+        menu?.let { (title, options) -> WatchedMenu(title, options, onClose = { menu = null }) }
+    }
+}
+
+/** Hold-OK menu for marking episodes watched. Ignores the held OK that opened it, so nothing gets picked by accident. */
+@Composable
+private fun WatchedMenu(title: String, options: List<Pair<String, () -> Unit>>, onClose: () -> Unit) {
+    val first = remember { FocusRequester() }
+    var armed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { delay(100); runCatching { first.requestFocus() } }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.width(480.dp).clip(RoundedCornerShape(14.dp)).background(Panel).padding(28.dp)
+                .onPreviewKeyEvent { e ->
+                    val ok = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
+                    when {
+                        !ok || armed -> false
+                        e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0 -> { armed = true; false }
+                        e.type == KeyEventType.KeyUp -> { armed = true; true }
+                        else -> true
+                    }
+                },
+        ) {
+            Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(6.dp))
+            Text("Press Back to cancel.", fontSize = 14.sp, color = TextDim)
+            Spacer(Modifier.height(18.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                options.forEachIndexed { i, (label, action) ->
+                    TvButton(label, onClick = { action(); onClose() },
+                        modifier = Modifier.fillMaxWidth().then(if (i == 0) Modifier.focusRequester(first) else Modifier))
                 }
             }
         }

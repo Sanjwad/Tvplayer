@@ -209,6 +209,19 @@ object Library {
         val cur = watched[seriesId]
         if (cur != null && (cur.first > season || (cur.first == season && cur.second >= episode))) return
         watched = watched + (seriesId to (season to episode))
+        writeWatched()
+    }
+
+    /** Episode number meaning "the whole season", so a season can be marked watched without loading its episodes. */
+    const val WHOLE_SEASON = 9999
+
+    /** Sets where a show is up to, forwards or backwards. Null = not started. */
+    fun setWatched(seriesId: String, upTo: Pair<Int, Int>?) {
+        watched = if (upTo == null) watched - seriesId else watched + (seriesId to upTo)
+        writeWatched()
+    }
+
+    private fun writeWatched() {
         val o = JSONObject()
         watched.forEach { (k, v) -> o.put(k, "${v.first}:${v.second}") }
         sp?.edit()?.putString("watch_$key", o.toString())?.apply()

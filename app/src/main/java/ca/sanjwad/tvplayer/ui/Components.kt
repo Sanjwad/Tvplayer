@@ -26,6 +26,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontWeight
@@ -88,9 +93,33 @@ fun FocusBox(
     selected: Boolean = false,
     shape: Shape = RoundedCornerShape(10.dp),
     onFocus: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
+    // Holding OK on a remote repeats the key press; the first repeat (about half a second) counts as a long press.
+    var held by remember { mutableStateOf(false) }
+    var longFired by remember { mutableStateOf(false) }
+    val longPress = if (onLongClick == null) Modifier else Modifier.onPreviewKeyEvent { e ->
+        if (e.key == Key.Menu) {
+            if (e.type == KeyEventType.KeyUp) onLongClick()
+            return@onPreviewKeyEvent true
+        }
+        if (e.key != Key.DirectionCenter && e.key != Key.Enter && e.key != Key.NumPadEnter) return@onPreviewKeyEvent false
+        when (e.type) {
+            KeyEventType.KeyDown -> {
+                if (e.nativeKeyEvent.repeatCount == 0) { held = true; longFired = false }
+                else if (held && !longFired) { longFired = true; onLongClick() }
+                true
+            }
+            KeyEventType.KeyUp -> {
+                if (held && !longFired) onClick()
+                held = false; longFired = false
+                true
+            }
+            else -> false
+        }
+    }
     // Stay navy and let the coral outline do the highlighting, so coral never mixes into pink.
     val bg = when {
         focused -> FocusFill
@@ -103,6 +132,7 @@ fun FocusBox(
                 if (it.isFocused && !focused) onFocus?.invoke()
                 focused = it.isFocused
             }
+            .then(longPress)
             .clip(shape)
             .background(bg)
             .border(2.5.dp, if (focused) Accent else Color.Transparent, shape)
