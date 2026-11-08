@@ -749,6 +749,12 @@ fun LiveScreen(s: LiveState) {
                                 Text("▦  Guide", Modifier.padding(horizontal = 14.dp, vertical = 6.dp), fontSize = 14.sp, color = Color.White)
                             }
                             FocusBox(onClick = {
+                                // One-stream accounts can't show two channels; say so instead of opening it.
+                                if ((Session.client as? ca.sanjwad.tvplayer.stalker.XtreamClient)?.maxConnections == 1) {
+                                    android.widget.Toast.makeText(ctx, "Multi-screen needs an account that allows 2 or more streams at once. Yours allows 1 — ask your provider.",
+                                        android.widget.Toast.LENGTH_LONG).show()
+                                    return@FocusBox
+                                }
                                 Session.liveAll = s.all; Session.liveGenres = s.genres
                                 ctx.startActivity(Intent(ctx, ca.sanjwad.tvplayer.MultiViewActivity::class.java)
                                     .putExtra("channel_id", Library.lastChannelId.takeIf { id -> s.all.any { it.id == id } }))

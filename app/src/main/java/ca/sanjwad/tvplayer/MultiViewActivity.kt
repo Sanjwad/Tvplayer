@@ -106,12 +106,24 @@ class MultiViewActivity : ComponentActivity() {
         .setMediaSourceFactory(DefaultMediaSourceFactory(OkHttpDataSource.Factory(okhttp)))
         .build()
 
-    suspend fun linkFor(ch: Channel): String? = withContext(Dispatchers.IO) {
+    /** Channels that only play as HLS (shared with single-screen live TV). */
+    private val hlsChannels by lazy {
+        getSharedPreferences("player", MODE_PRIVATE).getStringSet("live_hls_ids", emptySet())!!.toMutableSet()
+    }
+
+    /** The channel's address: (as .ts, HLS address to fall back to). */
+    suspend fun linkFor(ch: Channel): Pair<String, String?>? = withContext(Dispatchers.IO) {
         val c = Session.client ?: return@withContext null
         runCatching { c.createLink("itv", ch.cmd, "", null) }.getOrNull()?.let {
-            // Same as single-screen live TV: Xtream channels as one continuous .ts stream.
-            if (c is XtreamClient && it.endsWith(".m3u8")) it.removeSuffix(".m3u8") + ".ts" else it
+            // Same as single-screen live TV: Xtream channels as one continuous .ts stream, HLS as the backup.
+            if (c is XtreamClient && it.endsWith(".m3u8") && ch.id !in hlsChannels) (it.removeSuffix(".m3u8") + ".ts") to it
+            else it to null
         }
+    }
+
+    private fun rememberHls(id: String) {
+        hlsChannels += id
+        getSharedPreferences("player", MODE_PRIVATE).edit().putStringSet("live_hls_ids", hlsChannels.toSet()).apply()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -208,11 +220,22 @@ class MultiViewActivity : ComponentActivity() {
             } else {
                 val player = remember(ch.id) { newPlayer() }
                 DisposableEffect(ch.id) {
+                    var hlsBackup: String? = null
                     val l = object : Player.Listener {
                         override fun onPlaybackStateChanged(state: Int) {
                             status = when (state) { Player.STATE_READY -> ""; Player.STATE_BUFFERING -> "Loading…"; else -> status }
                         }
                         override fun onPlayerError(error: PlaybackException) {
+                            // Won't play as one continuous stream: switch this channel to HLS, and remember that.
+                            val backup = hlsBackup
+                            if (backup != null && (error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
+                                    error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED)) {
+                                hlsBackup = null
+                                rememberHls(ch.id)
+                                player.setMediaItem(MediaItem.Builder().setUri(backup).setMimeType(androidx.media3.common.MimeTypes.APPLICATION_M3U8).build())
+                                player.prepare()
+                                return
+                            }
                             status = "Couldn't play (${error.errorCodeName.removePrefix("ERROR_CODE_").lowercase().replace('_', ' ')})"
                             // Reconnect after a moment, like single-screen live TV.
                             window.decorView.postDelayed({ runCatching { player.prepare() } }, 2000)
@@ -220,9 +243,10 @@ class MultiViewActivity : ComponentActivity() {
                     }
                     player.addListener(l)
                     lifecycleScope.launch {
-                        val url = linkFor(ch)
-                        if (url == null) status = "Couldn't get this channel" else {
-                            player.setMediaItem(MediaItem.fromUri(url)); player.prepare(); player.playWhenReady = true
+                        val link = linkFor(ch)
+                        if (link == null) status = "Couldn't get this channel" else {
+                            hlsBackup = link.second
+                            player.setMediaItem(MediaItem.fromUri(link.first)); player.prepare(); player.playWhenReady = true
                         }
                     }
                     onDispose { player.removeListener(l); player.release() }
