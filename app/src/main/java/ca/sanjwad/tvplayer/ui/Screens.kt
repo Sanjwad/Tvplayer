@@ -103,6 +103,9 @@ class VodState(val kind: String) {
     var gridMode by mutableStateOf(false)
     var editMode by mutableStateOf(false)
     var catsAttempt by mutableIntStateOf(0)
+    /** One load at a time, whether started by the background preload or by opening the tab. */
+    val catsLock = kotlinx.coroutines.sync.Mutex()
+    val trendLock = kotlinx.coroutines.sync.Mutex()
     /** TMDB-driven rows: title → matched titles (null while loading). */
     var trending by mutableStateOf<List<Pair<String, List<VodItem>?>>>(emptyList())
     val rowItems = androidx.compose.runtime.mutableStateMapOf<String, List<VodItem>>()
@@ -140,6 +143,15 @@ fun App() {
     val live = remember { LiveState() }
     val movies = remember { VodState("movies") }
     val series = remember { VodState("series") }
+    // Get Movies and TV Shows (lists, trending rows, first few rows) ready in the background while
+    // you watch live TV, so they're waiting when you open them. Starts after a pause so the live
+    // channel has settled before anything big downloads.
+    LaunchedEffect(screen) {
+        if (screen != "home") return@LaunchedEffect
+        kotlinx.coroutines.delay(15_000)
+        VodLoader.preload(movies)
+        VodLoader.preload(series)
+    }
 
     // Draw everything a bit smaller than default so more fits on a TV screen.
     val d = androidx.compose.ui.platform.LocalDensity.current

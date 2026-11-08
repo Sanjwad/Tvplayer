@@ -54,6 +54,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
 
 private val Rail = Color(0xFF121826)
 private val GoldTint = Color(0xFFFFC94D)
@@ -322,30 +323,24 @@ fun VodTab(s: VodState, onOpen: (VodItem) -> Unit) {
     }
 }
 
-@Composable
-private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
-    var waited by remember { mutableStateOf(0) }
-    LaunchedEffect(s.kind, s.catsAttempt) {
-        if (!s.catsLoaded) {
-            s.error = null
-            val r = withContext(Dispatchers.IO) {
-                runCatching { (Session.client ?: error("Not connected")).browseCategories(s.kind) }
-            }
-            r.exceptionOrNull()?.let {
-                s.error = if (it is java.io.InterruptedIOException) "Your provider took too long to reply." else it.message
-            }
-            r.getOrNull()?.let { (type, cats) -> Library.noteCategories(s.kind, cats); s.type = type; ca.sanjwad.tvplayer.Session.vodTypes[s.kind] = type; s.categories = cats; s.catsLoaded = true }
+/** Loads a Movies/TV Shows tab's lists; used both in the background at startup and when the tab opens. */
+object VodLoader {
+    suspend fun categories(s: VodState, showErrors: Boolean) = s.catsLock.withLock {
+        if (s.catsLoaded) return@withLock
+        if (showErrors) s.error = null
+        val r = withContext(Dispatchers.IO) {
+            runCatching { (Session.client ?: error("Not connected")).browseCategories(s.kind) }
         }
+        r.exceptionOrNull()?.let {
+            if (showErrors) s.error = if (it is java.io.InterruptedIOException) "Your provider took too long to reply." else it.message
+        }
+        r.getOrNull()?.let { (type, cats) -> Library.noteCategories(s.kind, cats); s.type = type; Session.vodTypes[s.kind] = type; s.categories = cats; s.catsLoaded = true }
     }
-    // Count seconds while waiting, so a slow provider is obvious rather than looking frozen.
-    LaunchedEffect(s.catsLoaded, s.catsAttempt) {
-        waited = 0
-        while (!s.catsLoaded && s.error == null) { delay(1000); waited++ }
-    }
-    // Trending rows from TMDB, matched to this provider's catalogue.
-    LaunchedEffect(s.kind, s.catsLoaded) {
-        val tmdb = Session.tmdb ?: return@LaunchedEffect
-        if (!s.catsLoaded || s.trending.isNotEmpty()) return@LaunchedEffect
+
+    /** Trending rows from TMDB, matched to this provider's catalogue. */
+    suspend fun trending(s: VodState) = s.trendLock.withLock {
+        val tmdb = Session.tmdb ?: return@withLock
+        if (!s.catsLoaded || s.trending.any { it.second != null }) return@withLock
         val rows: List<Pair<String, () -> List<ca.sanjwad.tvplayer.stalker.TmdbClient.Hit>>> =
             if (s.kind == "series") listOf("🔥  Trending TV shows" to tmdb::trendingTv, "⭐  Popular TV shows" to tmdb::popularTv)
             else listOf("🔥  Trending this week" to tmdb::trendingMovies, "🎟  In theatres now" to tmdb::inTheatres)
@@ -358,6 +353,35 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
             title to ca.sanjwad.tvplayer.stalker.TitleMatch.match(hits, catalogue)
         }
     }
+
+    suspend fun row(s: VodState, categoryId: String) {
+        if (s.rowItems[categoryId] != null) return
+        val list = withContext(Dispatchers.IO) {
+            runCatching { Session.client?.vodPage(s.type, categoryId, 1)?.items }.getOrNull()
+        }
+        if (s.rowItems[categoryId] == null) s.rowItems[categoryId] = list.orEmpty().take(40)
+    }
+
+    /** Everything the top of the tab needs: categories, trending rows, the first few category rows. */
+    suspend fun preload(s: VodState) {
+        categories(s, showErrors = false)
+        if (!s.catsLoaded) return
+        trending(s)
+        s.categories.filter { !Library.isHidden(s.kind, it.id) }.take(4).forEach { row(s, it.id) }
+    }
+}
+
+@Composable
+private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
+    var waited by remember { mutableStateOf(0) }
+    LaunchedEffect(s.kind, s.catsAttempt) { VodLoader.categories(s, showErrors = true) }
+    // Count seconds while waiting, so a slow provider is obvious rather than looking frozen.
+    LaunchedEffect(s.catsLoaded, s.catsAttempt) {
+        waited = 0
+        while (!s.catsLoaded && s.error == null) { delay(1000); waited++ }
+    }
+    // Trending rows from TMDB, matched to this provider's catalogue.
+    LaunchedEffect(s.kind, s.catsLoaded) { VodLoader.trending(s) }
     val (hero, setHero) = rememberHero()
     val label = kindLabel(s.kind)
     // Show the first title straight away so the panel is filled before you move into the rows.
@@ -393,14 +417,7 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                         }
                     }
                     items(s.categories.filter { !Library.isHidden(s.kind, it.id) }, key = { it.id }) { cat ->
-                        LaunchedEffect(cat.id) {
-                            if (s.rowItems[cat.id] == null) {
-                                val list = withContext(Dispatchers.IO) {
-                                    runCatching { Session.client?.vodPage(s.type, cat.id, 1)?.items }.getOrNull()
-                                }
-                                s.rowItems[cat.id] = list.orEmpty().take(40)
-                            }
-                        }
+                        LaunchedEffect(cat.id) { VodLoader.row(s, cat.id) }
                         PosterRow(cat.title, s.rowItems[cat.id], setHero, onOpen, onSeeAll = { openGrid(cat.id) })
                     }
                 }
