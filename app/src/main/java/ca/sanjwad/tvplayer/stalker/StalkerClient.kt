@@ -588,7 +588,7 @@ class StalkerClient(
     // ---------- movie list on the TV ----------
 
     @Volatile private var index: VodIndex? = null
-    private val NEWEST_PAGES = 150
+    private val NEWEST_PAGES = 50
     @Volatile private var syncStarted = false
 
     /** Progress of the movie-list download, shown on the Search screen ("" when done). */
@@ -659,7 +659,7 @@ class StalkerClient(
             val (first, total) = page(p)
             store(first)
             val per = first.size.coerceAtLeast(1)
-            // Only the newest ~2,000 titles: enough for instant results; the portal's search covers the rest.
+            // Only the newest ~700 titles (like Chris's player): enough for instant results; the portal's search covers the rest.
             val pages = minOf((total + per - 1) / per, NEWEST_PAGES)
             PortalLog.add("movie list: downloading from page $p of $pages ($total titles)")
             val pool = java.util.concurrent.Executors.newFixedThreadPool(2)
