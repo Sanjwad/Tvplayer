@@ -527,7 +527,8 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
         val r = withContext(Dispatchers.IO) {
             runCatching {
                 val c: IptvSource = if (prefs.isStalker)
-                    ca.sanjwad.tvplayer.stalker.StalkerClient(prefs.stPortal, prefs.stMac, prefs.stSerial, prefs.stDeviceId, prefs.stDeviceId2)
+                    ca.sanjwad.tvplayer.stalker.StalkerClient(prefs.stPortal, prefs.stMac, prefs.stSerial, prefs.stDeviceId, prefs.stDeviceId2,
+                        java.io.File(ctx.filesDir, "vodindex"))
                 else XtreamClient(prefs.xtServer, prefs.xtUser, prefs.xtPass,
                     java.io.File(ctx.filesDir, "catalogue").apply { mkdirs() })
                 c.connect()

@@ -79,6 +79,8 @@ class StalkerClient(
     private val serial: String = "",
     private val deviceId: String = "",
     private val deviceId2: String = "",
+    /** Where the on-TV copy of the movie list lives (null = don't keep one). */
+    private val indexDir: java.io.File? = null,
 ) : IptvSource {
 
     private val mac = macAddress.trim().uppercase()
@@ -175,7 +177,7 @@ class StalkerClient(
     /** Portals throttle a MAC that fires many requests at once, so at most three go out together. */
     private val gate = java.util.concurrent.Semaphore(3, true)
     /** Background paging (the whole catalogue, for trending rows) gets its own single lane so it never holds up the screen. */
-    private val bgGate = java.util.concurrent.Semaphore(1, true)
+    private val bgGate = java.util.concurrent.Semaphore(2, true)
     private val background = ThreadLocal.withInitial { false }
 
     private fun request(base: String, params: Map<String, String>): JSONObject {
@@ -437,6 +439,11 @@ class StalkerClient(
     }
 
     override fun search(type: String, query: String): List<VodItem> {
+        // Search the copy on the TV once there is one: the portal's own search times out on big catalogues.
+        index?.takeIf { it.count() > 0 }?.let { idx ->
+            val hits = idx.search(query)
+            return if (type == "series") hits.filter { it.isSeries } else hits
+        }
         fun fetch(q: String, pages: Int) = runCatching {
             allPages(
                 mapOf("type" to type, "action" to "get_ordered_list", "category" to "*", "genre" to "*",
@@ -555,6 +562,98 @@ class StalkerClient(
             return "vod" to if (ser.isEmpty() || mov.isEmpty()) all else mov
         }
         return "vod" to vod.getOrDefault(emptyList()).filter { isSeriesLike(it.title) }
+    }
+
+    // ---------- movie list on the TV ----------
+
+    @Volatile private var index: VodIndex? = null
+    @Volatile private var syncStarted = false
+
+    /** Progress of the movie-list download, shown on the Search screen ("" when done). */
+    @Volatile var indexStatus: String = ""
+        private set
+
+    /** Called after login (alongside the TV guide download): keeps the on-TV movie list up to date. */
+    override fun ensureGuide() {
+        if (indexDir == null) return
+        synchronized(this) { if (syncStarted) return; syncStarted = true }
+        Thread({
+            while (true) {
+                try { syncIndex() } catch (e: Exception) {
+                    indexStatus = "Movie list download paused; it carries on next time the app starts."
+                    PortalLog.add("movie list: ${e.javaClass.simpleName} ${e.message.orEmpty()}")
+                    return@Thread
+                }
+                // Top up with new titles a few times a day while the app is open.
+                Thread.sleep(6 * 3600_000L)
+            }
+        }, "vod-index").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }.start()
+    }
+
+    private fun syncIndex() {
+        Thread.sleep(8_000) // let the first screen load first
+        background.set(true)
+        val dir = indexDir ?: return
+        dir.mkdirs()
+        val idx = index ?: VodIndex(java.io.File(dir, md5("$root|$mac").take(16) + ".db")).also { index = it }
+        val seriesCats = runCatching { vodCategories("vod").filter { isSeriesLike(it.title) }.map { it.id }.toSet() }
+            .getOrDefault(emptySet())
+
+        fun page(p: Int): Pair<List<JSONObject>, Int> {
+            var last: Exception? = null
+            repeat(4) { attempt ->
+                try {
+                    background.set(true)
+                    val js = call(mapOf("type" to "vod", "action" to "get_ordered_list", "category" to "*", "genre" to "*",
+                        "sortby" to "added", "fav" to "0", "p" to p.toString())).optJSONObject("js")
+                    return js?.optJSONArray("data").mapObjects { it } to (js?.optInt("total_items", 0) ?: 0)
+                } catch (e: Exception) { last = e; Thread.sleep(3_000L * (attempt + 1)) }
+            }
+            throw last ?: IOException("page $p failed")
+        }
+        fun store(rows: List<JSONObject>) = idx.put(rows.map { o ->
+            val cat = o.optString("category_id").clean()
+            val v = toVod(o, "vod")
+            (if (cat in seriesCats) v.copy(isSeries = true) else v) to cat
+        })
+
+        // 1. New titles since last time (the list is newest first): stop at the first one already here.
+        if (idx.count() > 0) {
+            var p = 1
+            while (p <= 80) {
+                val (rows, _) = page(p)
+                if (rows.isEmpty()) break
+                val known = rows.any { idx.has(it.optString("id")) }
+                store(rows)
+                if (known) break
+                p++
+            }
+            PortalLog.add("movie list: topped up ($p page${if (p == 1) "" else "s"} checked), ${idx.count()} titles")
+        }
+
+        // 2. The first full download, resumed where it stopped. Two pages at a time, in the background lane.
+        if (idx.meta("full") != "1") {
+            var p = idx.meta("next")?.toIntOrNull() ?: 1
+            val (first, total) = page(p)
+            store(first)
+            val per = first.size.coerceAtLeast(1)
+            val pages = (total + per - 1) / per
+            PortalLog.add("movie list: downloading from page $p of $pages ($total titles)")
+            val pool = java.util.concurrent.Executors.newFixedThreadPool(2)
+            try {
+                while (p < pages) {
+                    val batch = ((p + 1)..minOf(p + 2, pages)).toList()
+                    batch.map { n -> pool.submit<List<JSONObject>> { page(n).first } }.forEach { store(it.get()) }
+                    p = batch.last()
+                    idx.setMeta("next", (p + 1).toString())
+                    indexStatus = "Downloading the movie list for search: ${p * 100 / pages}% (${idx.count()} titles so far)"
+                }
+            } finally { pool.shutdown() }
+            idx.setMeta("full", "1")
+            PortalLog.add("movie list: complete, ${idx.count()} titles")
+        }
+        idx.setMeta("synced", System.currentTimeMillis().toString())
+        indexStatus = ""
     }
 
     // ---------- playback ----------
