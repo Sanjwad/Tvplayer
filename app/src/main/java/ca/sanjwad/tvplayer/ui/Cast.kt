@@ -1,5 +1,7 @@
 package ca.sanjwad.tvplayer.ui
 
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.focusProperties
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -505,21 +507,34 @@ fun AboutPage(nav: AboutNav, onClose: () -> Unit, onCast: () -> Unit, onPick: (t
             if (a.collection.isNotEmpty()) item {
                 Text(a.collectionName ?: "The whole series", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
                 Spacer(Modifier.height(8.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    itemsIndexed(a.collection) { _, c ->
+                val firstOwned = remember { FocusRequester() }
+                val firstIdx = a.collection.indexOfFirst { have?.get(it) != null }
+                LazyRow(Modifier.enterAt(firstOwned, firstIdx >= 0), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    itemsIndexed(a.collection) { i, c ->
                         val hit = have?.get(c)
-                        if (hit != null) PosterTile(hit.second) { onPick(hit.first, hit.second) } else DimTile(c)
+                        if (hit != null) PosterTile(hit.second, modifier = if (i == firstIdx) Modifier.focusRequester(firstOwned) else Modifier) {
+                            onPick(hit.first, hit.second)
+                        } else DimTile(c)
                     }
                 }
             }
-            val similar = have?.let { h -> a.similar.mapNotNull { h[it] } }.orEmpty()
+            // Newest first (TMDB's own order puts old favourites first).
+            val similar = have?.let { h -> a.similar.sortedByDescending { it.year.take(4).toIntOrNull() ?: 0 }.mapNotNull { h[it] } }.orEmpty()
             if (similar.isNotEmpty()) item {
                 Text("More like this on your service", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
                 Spacer(Modifier.height(8.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    itemsIndexed(similar) { _, hit -> PosterTile(hit.second) { onPick(hit.first, hit.second) } }
+                val firstSimilar = remember { FocusRequester() }
+                LazyRow(Modifier.enterAt(firstSimilar, true), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    itemsIndexed(similar) { i, hit ->
+                        PosterTile(hit.second, modifier = if (i == 0) Modifier.focusRequester(firstSimilar) else Modifier) { onPick(hit.first, hit.second) }
+                    }
                 }
             }
         }
     }
 }
+
+/** Moving into a row from above or below lands on its first title, not whichever is nearest. */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+private fun Modifier.enterAt(first: FocusRequester, ok: Boolean): Modifier =
+    this.focusProperties { enter = { if (ok) first else FocusRequester.Default } }.focusGroup()
