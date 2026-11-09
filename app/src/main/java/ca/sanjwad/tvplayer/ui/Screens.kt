@@ -3,6 +3,8 @@ package ca.sanjwad.tvplayer.ui
 import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -1370,8 +1372,8 @@ fun PortalLogScreen(onClose: () -> Unit) {
 }
 
 /**
- * A text box for the remote: moving onto it doesn't pop up the keyboard, so you can scroll past it
- * with up/down. Press OK on it to type.
+ * A text box for the remote. The cursor lands on an outline around the box, not the box itself, so
+ * the TV's keyboard doesn't pop up while you scroll past. Press OK to type; moving away ends typing.
  */
 @Composable
 fun TvTextField(
@@ -1380,15 +1382,37 @@ fun TvTextField(
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     visualTransformation: androidx.compose.ui.text.input.VisualTransformation = androidx.compose.ui.text.input.VisualTransformation.None,
 ) {
+    var editing by remember { mutableStateOf(false) }
+    var outlined by remember { mutableStateOf(false) }
+    var fieldHadFocus by remember { mutableStateOf(false) }
+    val field = remember { FocusRequester() }
     val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    OutlinedTextField(
-        value = value, onValueChange = onValueChange, label = label, singleLine = singleLine,
-        modifier = modifier.onPreviewKeyEvent { e ->
-            val ok = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
-            if (ok && e.type == KeyEventType.KeyUp) kb?.show()
-            ok
-        },
-        keyboardOptions = keyboardOptions.copy(showKeyboardOnFocus = false),
-        visualTransformation = visualTransformation,
-    )
+    LaunchedEffect(editing) {
+        if (editing) { delay(50); runCatching { field.requestFocus() }; kb?.show() }
+    }
+    Box(
+        modifier
+            .onFocusChanged { outlined = it.isFocused }
+            .onPreviewKeyEvent { e ->
+                val ok = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
+                if (!ok || editing) return@onPreviewKeyEvent false
+                if (e.type == KeyEventType.KeyUp) editing = true
+                true
+            }
+            .focusable(enabled = !editing)
+            .clip(RoundedCornerShape(6.dp))
+            .border(2.5.dp, if (outlined) Accent else Color.Transparent, RoundedCornerShape(6.dp)),
+    ) {
+        OutlinedTextField(
+            value = value, onValueChange = onValueChange, label = label, singleLine = singleLine,
+            modifier = Modifier.fillMaxWidth().focusRequester(field)
+                .focusProperties { canFocus = editing }
+                .onFocusChanged {
+                    if (it.isFocused) fieldHadFocus = true
+                    else if (fieldHadFocus) { fieldHadFocus = false; editing = false }
+                },
+            keyboardOptions = keyboardOptions.copy(showKeyboardOnFocus = false),
+            visualTransformation = visualTransformation,
+        )
+    }
 }
