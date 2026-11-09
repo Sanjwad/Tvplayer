@@ -93,6 +93,8 @@ class LiveState {
 /** [kind] is the tab ("movies" or "series"); [type] is the portal section actually used for it. */
 class VodState(val kind: String) {
     var type = "vod"
+    /** Set by "See all": put the cursor on the first title once the grid has loaded. */
+    var focusGridOnce = false
     var categories by mutableStateOf<List<Genre>>(emptyList())
     var category by mutableStateOf<String?>(null)
     var items by mutableStateOf<List<VodItem>>(emptyList())
@@ -847,7 +849,11 @@ fun LiveScreen(s: LiveState) {
 // ---------------- movies & series ----------------
 
 @Composable
-private fun PosterGrid(items: List<VodItem>, onOpen: (VodItem) -> Unit, onNearEnd: (() -> Unit)? = null) {
+private fun PosterGrid(items: List<VodItem>, onOpen: (VodItem) -> Unit, onNearEnd: (() -> Unit)? = null, focusFirst: Boolean = false, onFocused: () -> Unit = {}) {
+    val first = remember { FocusRequester() }
+    if (focusFirst && items.isNotEmpty()) LaunchedEffect(Unit) {
+        delay(150); if (runCatching { first.requestFocus() }.isSuccess) onFocused()
+    }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(150.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -855,7 +861,7 @@ private fun PosterGrid(items: List<VodItem>, onOpen: (VodItem) -> Unit, onNearEn
     ) {
         itemsIndexed(items) { index, item ->
             if (onNearEnd != null && index >= items.size - 8) LaunchedEffect(index) { onNearEnd() }
-            PosterCard(item) { onOpen(item) }
+            PosterCard(item, if (index == 0) Modifier.focusRequester(first) else Modifier) { onOpen(item) }
         }
     }
 }
@@ -957,7 +963,8 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
                     s.catsLoaded && s.categories.isEmpty() -> CenterMessage("No $label section on this server", null)
                     s.items.isEmpty() && (s.loading || !s.catsLoaded) -> CenterMessage("Loading $label…", loading = true)
                     s.items.isEmpty() -> CenterMessage("Nothing in this category")
-                    else -> PosterGrid(s.items, onOpen) { loadPage(false) }
+                    else -> PosterGrid(s.items, onOpen, { loadPage(false) }, focusFirst = s.focusGridOnce,
+                        onFocused = { s.focusGridOnce = false })
                 }
             }
         }
@@ -965,8 +972,8 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
 }
 
 @Composable
-fun PosterCard(item: VodItem, onClick: () -> Unit) {
-    FocusBox(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+fun PosterCard(item: VodItem, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    FocusBox(onClick = onClick, modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(6.dp)) {
             Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(6.dp)).background(Bg)) {
                 Text(item.name, Modifier.align(Alignment.Center).padding(8.dp), color = TextDim, fontSize = 14.sp, maxLines = 4)

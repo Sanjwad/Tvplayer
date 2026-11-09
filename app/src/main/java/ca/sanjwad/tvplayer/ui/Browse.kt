@@ -392,6 +392,7 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
     fun openGrid(categoryId: String) {
         s.category = categoryId; s.items = emptyList(); s.total = 0; s.page = 0
         s.gridMode = true
+        s.focusGridOnce = true
     }
 
     Column(Modifier.fillMaxSize()) {
