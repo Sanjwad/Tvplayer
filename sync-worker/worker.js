@@ -1,4 +1,4 @@
-// v1
+// v1 (deploy 3)
 // Sanj TV sync: stores each household's My List, favourites and watched progress.
 // A household is identified by a 64-character key the app derives from its IPTV login
 // (a SHA-256 hash, so the login itself never leaves the TV).
