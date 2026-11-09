@@ -733,18 +733,20 @@ fun LiveScreen(s: LiveState) {
     LaunchedEffect(Unit) {
         if (!s.loaded && !s.loading) {
             s.loading = true; s.error = null
-            val r = withContext(Dispatchers.IO) {
-                runCatching {
-                    val c = Session.client ?: error("Not connected")
-                    c.liveGenres() to c.liveChannels()
+            // finally: leaving Live TV mid-load cancels this; without it "Loading channels…" stuck forever.
+            try {
+                val r = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val c = Session.client ?: error("Not connected")
+                        c.liveGenres() to c.liveChannels()
+                    }
                 }
-            }
-            r.onSuccess { (g, ch) ->
-                Library.noteCategories("live", g)
-                s.genres = listOf(Genre("*", "All channels")) + g.filter { it.id != "*" }
-                s.all = ch; s.loaded = true
-            }.onFailure { s.error = it.message }
-            s.loading = false
+                r.onSuccess { (g, ch) ->
+                    Library.noteCategories("live", g)
+                    s.genres = listOf(Genre("*", "All channels")) + g.filter { it.id != "*" }
+                    s.all = ch; s.loaded = true
+                }.onFailure { s.error = it.message }
+            } finally { s.loading = false }
         }
     }
 
@@ -905,17 +907,20 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
         if (reset) { s.items = emptyList(); s.total = 0 }
         s.loading = true; s.error = null
         s.job = scope.launch {
-            val r = withContext(Dispatchers.IO) {
-                runCatching { (Session.client ?: error("Not connected")).vodPage(s.type, cat, p) }
-            }
-            if (!isActive) return@launch
-            if (s.category == cat) {
-                r.onSuccess { pg ->
-                    s.items = if (reset) pg.items else s.items + pg.items
-                    s.page = p; s.total = if (pg.items.isEmpty()) s.items.size else pg.totalItems
-                }.onFailure { s.error = it.message }
-            }
-            s.loading = false
+            val me = coroutineContext[kotlinx.coroutines.Job]
+            // finally: leaving "See all" mid-load cancels this; without it the grid stayed on "Loading…".
+            try {
+                val r = withContext(Dispatchers.IO) {
+                    runCatching { (Session.client ?: error("Not connected")).vodPage(s.type, cat, p) }
+                }
+                if (!isActive) return@launch
+                if (s.category == cat) {
+                    r.onSuccess { pg ->
+                        s.items = if (reset) pg.items else s.items + pg.items
+                        s.page = p; s.total = if (pg.items.isEmpty()) s.items.size else pg.totalItems
+                    }.onFailure { s.error = it.message }
+                }
+            } finally { if (s.job == null || s.job === me) s.loading = false }
         }
     }
 
