@@ -83,7 +83,7 @@ class XtreamClient(
             return try {
                 JSONTokener(body).nextValue()
             } catch (e: Exception) {
-                throw IOException("Couldn't read the server's reply.")
+                throw IOException("Couldn't read the server's reply (check the server address and port): ${body.take(80)}")
             }
         }
     }
@@ -101,7 +101,13 @@ class XtreamClient(
         str(key).takeIf { it.startsWith("http", true) }
 
     override fun connect() {
-        val js = api() as? JSONObject ?: throw IOException("Unexpected reply from the server.")
+        val reply = api()
+        val js = reply as? JSONObject ?: throw IOException(
+            if (reply == null || (reply is JSONArray && reply.length() == 0))
+                "The server sent back nothing. That usually means a typo in the username or password " +
+                    "(they're case-sensitive; the TV keyboard often capitalises the first letter), or the wrong server address or port."
+            else "Unexpected reply from the server: ${reply.toString().take(80)}"
+        )
         val info = js.optJSONObject("user_info") ?: throw IOException("This doesn't look like an Xtream server.")
         if (info.optInt("auth", 0) != 1) throw IOException("The server refused this username or password.")
         val status = info.str("status")
