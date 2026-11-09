@@ -1,0 +1,46 @@
+name: Deploy sync service
+
+# Uploads sync-worker/ to Cloudflare. Needs repo secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
+on:
+  push:
+    branches: [main, stalker]
+    paths: ["sync-worker/**", ".github/workflows/sync-worker.yml"]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check secrets
+        run: |
+          if [ -z "$CF_TOKEN" ] || [ -z "$CF_ACCOUNT" ]; then
+            echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set yet; skipping."
+            echo "SKIP=1" >> $GITHUB_ENV
+          fi
+      - name: Find or create the KV store
+        if: env.SKIP != '1'
+        run: |
+          api="https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/storage/kv/namespaces"
+          id=$(curl -fsS -H "Authorization: Bearer $CF_TOKEN" "$api?per_page=100" | jq -r '.result[] | select(.title=="sanjtv-sync") | .id' | head -1)
+          if [ -z "$id" ]; then
+            id=$(curl -fsS -X POST -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+              --data '{"title":"sanjtv-sync"}' "$api" | jq -r '.result.id')
+          fi
+          echo "KV id: $id"
+          sed -i "s/__KV_ID__/$id/" sync-worker/wrangler.toml
+      - name: Deploy
+        if: env.SKIP != '1'
+        working-directory: sync-worker
+        run: npx --yes wrangler@4 deploy 2>&1 | tee deploy.log
+      - name: Show address
+        if: env.SKIP != '1'
+        run: |
+          url=$(grep -oE 'https://sanjtv-sync\.[a-z0-9-]+\.workers\.dev' sync-worker/deploy.log | head -1)
+          echo "SYNC_URL=$url"
+          curl -fsS "$url/" && echo
