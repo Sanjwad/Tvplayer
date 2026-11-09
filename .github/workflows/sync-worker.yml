@@ -7,6 +7,12 @@ on:
     paths: ["sync-worker/**", ".github/workflows/sync-worker.yml"]
   workflow_dispatch:
 
+# A newer push replaces a build still running for the same branch, instead of two builds
+# racing to publish the same release (that race was what sent the "failed" emails).
+concurrency:
+  group: sync-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
