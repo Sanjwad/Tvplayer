@@ -233,6 +233,9 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
     var advanced by remember { mutableStateOf(false) }
     var tmdbSaved by remember { mutableStateOf(false) }
     var startLast by remember { mutableStateOf(prefs.startOnLastChannel) }
+    var syncOn by remember { mutableStateOf(prefs.syncOn) }
+    var syncName by remember { mutableStateOf(prefs.syncName) }
+    var syncNameSaved by remember { mutableStateOf(prefs.syncName) }
     if (hasSaved) BackHandler { if (editing) { editing = false; err = null } else onCancel() }
 
     if (showLog) {
@@ -444,6 +447,37 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
                 Text(if (startLast) "On" else "Off", fontSize = 15.sp, fontWeight = FontWeight.Bold,
                     color = if (startLast) Accent else TextDim)
             }
+        }
+
+        // ---- Sync between TVs
+        Spacer(Modifier.height(10.dp))
+        FocusBox(onClick = {
+            syncOn = !syncOn; prefs.syncOn = syncOn
+            if (Session.client != null) ca.sanjwad.tvplayer.Sync.start(prefs)
+        }, modifier = w, shape = RoundedCornerShape(10.dp)) {
+            Row(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Share My List, favourites and watched episodes with other TVs", fontSize = 15.sp, color = Color.White)
+                    Text(if (syncOn) "TVs with the same login and sync name share them." else "Off: this TV keeps its own lists.",
+                        fontSize = 12.sp, color = TextDim)
+                }
+                Text(if (syncOn) "On" else "Off", fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                    color = if (syncOn) Accent else TextDim)
+            }
+        }
+        if (syncOn) {
+            Spacer(Modifier.height(8.dp))
+            Row(w, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TvTextField(syncName, { syncName = it }, label = { Text("Sync name") }, singleLine = true,
+                    modifier = Modifier.weight(1f))
+                TvButton(if (syncName.trim().ifBlank { "Family" } == syncNameSaved) "In use" else "Use this name", onClick = {
+                    prefs.syncName = syncName; syncNameSaved = prefs.syncName; syncName = syncNameSaved
+                    if (Session.client != null) ca.sanjwad.tvplayer.Sync.start(prefs)
+                })
+            }
+            Text("\"Family\" is shared by every TV that hasn't been given another name. Give a TV its own name " +
+                "(and use the same name on any other TV of theirs) to keep a separate set of lists.",
+                fontSize = 12.sp, color = TextDim, modifier = w.padding(top = 6.dp))
         }
 
         // ---- Advanced (collapsed)
