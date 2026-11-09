@@ -25,6 +25,9 @@ android {
         // Built-in TMDB key, supplied by the TMDB_KEY secret in GitHub Actions (never stored in the code).
         buildConfigField("String", "OMDB_KEY", "\"${(System.getenv("OMDB_KEY") ?: "").trim()}\"")
         buildConfigField("String", "OPENSUBS_KEY", "\"${(System.getenv("OPENSUBS_KEY") ?: "").trim()}\"")
+        // Address of the sync service (sync-worker/), kept in sync-url.txt; blank = sync off.
+        val syncUrl = rootProject.file("sync-url.txt").takeIf { it.exists() }?.readText()?.trim().orEmpty()
+        buildConfigField("String", "SYNC_URL", "\"$syncUrl\"")
         buildConfigField("String", "TMDB_KEY", "\"${(System.getenv("TMDB_KEY") ?: "").trim()}\"")
     }
 

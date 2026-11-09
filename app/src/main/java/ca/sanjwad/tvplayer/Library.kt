@@ -29,6 +29,20 @@ object Library {
     private var sp: SharedPreferences? = null
     private var key = ""
 
+    // ---------- sync bookkeeping ----------
+    /** When each entry last changed on this TV ("fav:<id>", "list:<id>", "watch:<id>", "prog:<key>", "hidden:<section>"). */
+    private var stamps = mutableMapOf<String, Long>()
+    /** Called after any change, so [Sync] can upload it. */
+    var onChange: (() -> Unit)? = null
+
+    private fun touch(vararg ids: String) {
+        val now = System.currentTimeMillis()
+        ids.forEach { stamps[it] = now }
+        val o = JSONObject(); stamps.forEach { (k, v) -> o.put(k, v) }
+        sp?.edit()?.putString("stamps_$key", o.toString())?.apply()
+        onChange?.invoke()
+    }
+
     var favourites by mutableStateOf<List<Channel>>(emptyList())
         private set
     var myList by mutableStateOf<List<SavedItem>>(emptyList())
@@ -48,12 +62,15 @@ object Library {
     fun removeProgress(key: String) {
         progress = progress - key
         writeProgress()
+        touch("prog:$key")
     }
 
     fun saveProgress(p: Progress) {
         val done = p.durMs > 0 && p.posMs > p.durMs * 0.95
+        val before = progress[p.key]
         progress = if (done || p.posMs < 30_000) progress - p.key else progress + (p.key to p)
         writeProgress()
+        if (before != null || progress[p.key] != null) touch("prog:${p.key}")
     }
 
     private fun writeProgress() {
@@ -166,6 +183,7 @@ object Library {
         val o = JSONObject()
         hidden.forEach { (k, v) -> o.put(k, JSONArray(v.toList())) }
         sp?.edit()?.putString("hidden_$key", o.toString())?.apply()
+        touch("hidden:$section")
     }
 
     fun load(ctx: Context, accountKey: String) {
@@ -203,6 +221,10 @@ object Library {
                 (0 until a.length()).map { a.optString(it) }.toSet()
             }
         }.getOrDefault(emptyMap())
+        stamps = runCatching {
+            val o = JSONObject(prefs.getString("stamps_$key", "{}")!!)
+            o.keys().asSequence().associateWith { o.optLong(it) }.toMutableMap()
+        }.getOrDefault(mutableMapOf())
     }
 
     fun markWatched(seriesId: String, season: Int, episode: Int) {
@@ -210,6 +232,7 @@ object Library {
         if (cur != null && (cur.first > season || (cur.first == season && cur.second >= episode))) return
         watched = watched + (seriesId to (season to episode))
         writeWatched()
+        touch("watch:$seriesId")
     }
 
     /** Episode number meaning "the whole season", so a season can be marked watched without loading its episodes. */
@@ -219,6 +242,7 @@ object Library {
     fun setWatched(seriesId: String, upTo: Pair<Int, Int>?) {
         watched = if (upTo == null) watched - seriesId else watched + (seriesId to upTo)
         writeWatched()
+        touch("watch:$seriesId")
     }
 
     private fun writeWatched() {
@@ -249,6 +273,7 @@ object Library {
     fun toggleFavourite(ch: Channel) {
         favourites = if (isFavourite(ch.id)) favourites.filterNot { it.id == ch.id } else favourites + ch
         sp?.edit()?.putString("fav_$key", JSONArray(favourites.map(::channelJson)).toString())?.apply()
+        touch("fav:${ch.id}")
     }
 
     fun inList(id: String) = myList.any { it.item.id == id }
@@ -257,6 +282,84 @@ object Library {
         myList = if (inList(item.id)) myList.filterNot { it.item.id == item.id }
         else listOf(SavedItem(kind, type, item)) + myList
         sp?.edit()?.putString("list_$key", JSONArray(myList.map(::savedJson)).toString())?.apply()
+        touch("list:${item.id}")
+    }
+
+    // ---------- sync: export / merge ----------
+
+    private fun progressJson(p: Progress) = JSONObject().put("t", p.title).put("s", p.subtitle).put("p", p.poster ?: "")
+        .put("c", p.cmd).put("pos", p.posMs).put("dur", p.durMs).put("u", p.updated).put("sid", p.seriesId ?: "")
+
+    private fun parseProgress(k: String, v: JSONObject) = Progress(k, v.optString("t"), v.optString("s"),
+        v.optString("p").ifBlank { null }, v.optString("c"), v.optLong("pos"), v.optLong("dur"), v.optLong("u"),
+        v.optString("sid").ifBlank { null })
+
+    /**
+     * Everything on this TV as one document: id → {ts, del, d}. Entries from before sync existed
+     * get ts 1, so anything changed on another TV wins over them.
+     */
+    @Synchronized
+    fun exportDoc(): JSONObject {
+        val doc = JSONObject().put("v", 1)
+        fun entry(id: String, data: Any?): JSONObject =
+            JSONObject().put("ts", stamps[id] ?: 1L).put("del", data == null).apply { if (data != null) put("d", data) }
+        val all = JSONObject()
+        favourites.forEach { all.put("fav:${it.id}", entry("fav:${it.id}", channelJson(it))) }
+        myList.forEach { all.put("list:${it.item.id}", entry("list:${it.item.id}", savedJson(it))) }
+        watched.forEach { (k, v) -> all.put("watch:$k", entry("watch:$k", "${v.first}:${v.second}")) }
+        progress.values.sortedByDescending { it.updated }.take(60).forEach { all.put("prog:${it.key}", entry("prog:${it.key}", progressJson(it))) }
+        hidden.forEach { (k, v) -> all.put("hidden:$k", entry("hidden:$k", JSONArray(v.toList()))) }
+        // Removed entries (stamped but gone) travel as deletions.
+        stamps.keys.filter { !all.has(it) }.forEach { all.put(it, entry(it, null)) }
+        return doc.put("items", all)
+    }
+
+    /** Merges another TV's document into this one (newest change wins, entry by entry). Returns true if anything here changed. */
+    @Synchronized
+    fun mergeDoc(remote: JSONObject): Boolean {
+        val theirs = remote.optJSONObject("items") ?: return false
+        val mine = exportDoc().getJSONObject("items")
+        var changed = false
+        var fav = favourites.associateBy { it.id }.toMutableMap()
+        val list = myList.associateBy { it.item.id }.toMutableMap()
+        val watch = watched.toMutableMap()
+        val prog = progress.toMutableMap()
+        val hid = hidden.toMutableMap()
+        for (id in theirs.keys()) {
+            val t = theirs.optJSONObject(id) ?: continue
+            val ts = t.optLong("ts")
+            val m = mine.optJSONObject(id)
+            if (m != null && m.optLong("ts") >= ts) continue
+            changed = true
+            stamps[id] = ts
+            val del = t.optBoolean("del")
+            val name = id.substringAfter(':')
+            when (id.substringBefore(':')) {
+                "fav" -> if (del) fav.remove(name) else t.optJSONObject("d")?.let { d ->
+                    parseChannels(JSONArray().put(d).toString()).firstOrNull()?.let { fav[name] = it } }
+                "list" -> if (del) list.remove(name) else t.optJSONObject("d")?.let { d ->
+                    parseSaved(JSONArray().put(d).toString()).firstOrNull()?.let { list[name] = it } }
+                "watch" -> if (del) watch.remove(name) else t.optString("d").split(":").let { p ->
+                    val a = p.getOrNull(0)?.toIntOrNull(); val b = p.getOrNull(1)?.toIntOrNull()
+                    if (a != null && b != null) watch[name] = a to b }
+                "prog" -> if (del) prog.remove(name) else t.optJSONObject("d")?.let { prog[name] = parseProgress(name, it) }
+                "hidden" -> if (del) hid.remove(name) else t.optJSONArray("d")?.let { a ->
+                    hid[name] = (0 until a.length()).map { a.optString(it) }.toSet() }
+            }
+        }
+        if (!changed) return false
+        // My List newest first, favourites in the order they were added.
+        favourites = fav.values.sortedBy { stamps["fav:${it.id}"] ?: 1L }
+        myList = list.values.sortedByDescending { stamps["list:${it.item.id}"] ?: 1L }
+        watched = watch; progress = prog; hidden = hid
+        sp?.edit()
+            ?.putString("fav_$key", JSONArray(favourites.map(::channelJson)).toString())
+            ?.putString("list_$key", JSONArray(myList.map(::savedJson)).toString())
+            ?.putString("hidden_$key", JSONObject().apply { hidden.forEach { (k, v) -> put(k, JSONArray(v.toList())) } }.toString())
+            ?.putString("stamps_$key", JSONObject().apply { stamps.forEach { (k, v) -> put(k, v) } }.toString())
+            ?.apply()
+        writeWatched(); writeProgress()
+        return true
     }
 
     // ---------- JSON ----------
