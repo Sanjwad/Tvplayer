@@ -8,7 +8,7 @@
 
     <application
         android:label="${appLabel}"
-        android:icon="@drawable/ic_launcher"
+        android:icon="${appIcon}"
         android:banner="${appBanner}"
         android:usesCleartextTraffic="true"
         android:largeHeap="true"
