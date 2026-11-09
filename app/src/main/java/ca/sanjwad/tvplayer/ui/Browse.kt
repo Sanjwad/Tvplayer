@@ -236,6 +236,8 @@ private fun PosterRow(
     title: String, list: List<VodItem>?, onFocusItem: (VodItem) -> Unit, onOpen: (VodItem) -> Unit,
     badgeFor: (VodItem) -> String? = { null }, onSeeAll: (() -> Unit)? = null,
     firstItem: Modifier = Modifier,
+    /** Coming back from "See all": open scrolled to the end with the cursor on "See all". */
+    focusSeeAll: Boolean = false, onSeeAllFocused: () -> Unit = {},
 ) {
     Column {
         Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
@@ -243,14 +245,21 @@ private fun PosterRow(
         when {
             list == null -> Text("Loading…", color = TextDim, fontSize = 14.sp, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
             list.isEmpty() -> Text("Nothing here", color = TextDim, fontSize = 14.sp, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
-            else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            else -> {
+              val rowState = androidx.compose.foundation.lazy.rememberLazyListState(if (focusSeeAll) list.size else 0)
+              val seeAll = remember { FocusRequester() }
+              if (focusSeeAll && onSeeAll != null) LaunchedEffect(Unit) {
+                  delay(150); runCatching { seeAll.requestFocus() }; onSeeAllFocused()
+              }
+              LazyRow(state = rowState, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(list.size) { i -> val item = list[i]
                     PosterTile(item, { onFocusItem(item) }, badgeFor(item), if (i == 0) firstItem else Modifier) { onOpen(item) } }
                 if (onSeeAll != null) item {
-                    FocusBox(onClick = onSeeAll, modifier = Modifier.width(112.dp).aspectRatio(0.6f), shape = RoundedCornerShape(8.dp)) {
+                    FocusBox(onClick = onSeeAll, modifier = Modifier.focusRequester(seeAll).width(112.dp).aspectRatio(0.6f), shape = RoundedCornerShape(8.dp)) {
                         Text("See all ›", Modifier.align(Alignment.Center), color = Accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
+              }
             }
         }
     }
@@ -396,7 +405,11 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
         ?: s.categories.firstNotNullOfOrNull { c -> if (Library.isHidden(s.kind, c.id)) null else s.rowItems[c.id]?.firstOrNull() }
     LaunchedEffect(firstTitle?.id) { if (hero == null && firstTitle != null) setHero(firstTitle) }
 
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState(s.rowsIndex, s.rowsOffset)
+
     fun openGrid(categoryId: String) {
+        s.rowsIndex = listState.firstVisibleItemIndex; s.rowsOffset = listState.firstVisibleItemScrollOffset
+        s.returnTo = categoryId
         s.category = categoryId; s.items = emptyList(); s.total = 0; s.page = 0
         s.gridMode = true
         s.focusGridOnce = true
@@ -418,7 +431,7 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                 if (waited >= 8) "Waiting for your provider… ${waited}s" else null, loading = true)
             s.categories.isEmpty() -> CenterMessage("No $label on this server")
             else -> {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     s.trending.forEachIndexed { i, (title, list) ->
                         if (list == null || list.isNotEmpty()) item("trend$i") {
                             PosterRow(title, list, setHero, onOpen)
@@ -426,7 +439,8 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                     }
                     items(s.categories.filter { !Library.isHidden(s.kind, it.id) }, key = { it.id }) { cat ->
                         LaunchedEffect(cat.id) { VodLoader.row(s, cat.id) }
-                        PosterRow(cat.title, s.rowItems[cat.id], setHero, onOpen, onSeeAll = { openGrid(cat.id) })
+                        PosterRow(cat.title, s.rowItems[cat.id], setHero, onOpen, onSeeAll = { openGrid(cat.id) },
+                            focusSeeAll = s.returnTo == cat.id, onSeeAllFocused = { s.returnTo = null })
                     }
                 }
             }

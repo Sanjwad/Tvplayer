@@ -95,6 +95,10 @@ class VodState(val kind: String) {
     var type = "vod"
     /** Set by "See all": put the cursor on the first title once the grid has loaded. */
     var focusGridOnce = false
+    /** Where the rows were when "See all" was pressed, so Back returns to the same spot. */
+    var rowsIndex = 0
+    var rowsOffset = 0
+    var returnTo: String? = null
     var categories by mutableStateOf<List<Genre>>(emptyList())
     var category by mutableStateOf<String?>(null)
     var items by mutableStateOf<List<VodItem>>(emptyList())
