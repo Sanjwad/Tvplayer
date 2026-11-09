@@ -436,12 +436,27 @@ class StalkerClient(
         return Page(items, js?.optInt("total_items", items.size) ?: items.size)
     }
 
-    override fun search(type: String, query: String): List<VodItem> =
-        allPages(
-            mapOf("type" to type, "action" to "get_ordered_list", "category" to "*", "genre" to "*",
-                "search" to query, "sortby" to "added", "fav" to "0"),
-            maxPages = 3,
-        ).map { toVod(it, type) }.distinctBy { it.id }
+    override fun search(type: String, query: String): List<VodItem> {
+        fun fetch(q: String, pages: Int) = runCatching {
+            allPages(
+                mapOf("type" to type, "action" to "get_ordered_list", "category" to "*", "genre" to "*",
+                    "search" to q, "sortby" to "added", "fav" to "0"),
+                maxPages = pages,
+            ).map { toVod(it, type) }
+        }
+        // The portal matches the text exactly, so "Mission Impossible" misses "Mission: Impossible – Fallout".
+        // Ask for the longest word too, then keep titles that contain every word, ignoring punctuation.
+        val words = TitleMatch.norm(query).split(" ").filter { it.isNotBlank() }
+        fun matches(v: VodItem) = TitleMatch.norm(v.name).split(" ").toSet().let { t -> words.all { w -> t.any { it.startsWith(w) } } }
+        val exact = fetch(query, 3)
+        val hits = exact.getOrDefault(emptyList()).filter(::matches)
+        val out = if (hits.isNotEmpty() || words.size < 2) hits.ifEmpty { exact.getOrThrow() }
+        else {
+            val key = words.maxByOrNull { it.length }!!
+            fetch(key, 6).getOrDefault(emptyList()).filter(::matches)
+        }
+        return out.distinctBy { it.id }
+    }
 
     private val catalogueCache = java.util.concurrent.ConcurrentHashMap<String, List<VodItem>>()
 
