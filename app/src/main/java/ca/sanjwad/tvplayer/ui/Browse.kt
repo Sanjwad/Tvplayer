@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -238,6 +239,8 @@ private fun PosterRow(
     firstItem: Modifier = Modifier,
     /** Coming back from "See all": open scrolled to the end with the cursor on "See all". */
     focusSeeAll: Boolean = false, onSeeAllFocused: () -> Unit = {},
+    /** Any tile in this row got the cursor (used to line the row up with the top). */
+    onRowFocus: () -> Unit = {},
 ) {
     Column {
         Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
@@ -253,9 +256,10 @@ private fun PosterRow(
               }
               LazyRow(state = rowState, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(list.size) { i -> val item = list[i]
-                    PosterTile(item, { onFocusItem(item) }, badgeFor(item), if (i == 0) firstItem else Modifier) { onOpen(item) } }
+                    PosterTile(item, { onFocusItem(item); onRowFocus() }, badgeFor(item), if (i == 0) firstItem else Modifier) { onOpen(item) } }
                 if (onSeeAll != null) item {
-                    FocusBox(onClick = onSeeAll, modifier = Modifier.focusRequester(seeAll).width(112.dp).aspectRatio(0.6f), shape = RoundedCornerShape(8.dp)) {
+                    FocusBox(onClick = onSeeAll, modifier = Modifier.focusRequester(seeAll).width(112.dp).aspectRatio(0.6f), shape = RoundedCornerShape(8.dp),
+                        onFocus = onRowFocus) {
                         Text("See all ›", Modifier.align(Alignment.Center), color = Accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
@@ -431,16 +435,25 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                 if (waited >= 8) "Waiting for your provider… ${waited}s" else null, loading = true)
             s.categories.isEmpty() -> CenterMessage("No $label on this server")
             else -> {
+                val rowScope = rememberCoroutineScope()
+                // Moving between rows lines the row with the cursor up at the top, so it's always shown whole.
+                fun alignRow(index: Int) {
+                    if (listState.firstVisibleItemIndex == index && listState.firstVisibleItemScrollOffset == 0) return
+                    rowScope.launch { delay(30); listState.animateScrollToItem(index) }
+                }
+                val trendRows = s.trending.withIndex().filter { (_, t) -> t.second == null || t.second!!.isNotEmpty() }
+                val cats = s.categories.filter { !Library.isHidden(s.kind, it.id) }
                 LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    s.trending.forEachIndexed { i, (title, list) ->
-                        if (list == null || list.isNotEmpty()) item("trend$i") {
-                            PosterRow(title, list, setHero, onOpen)
+                    trendRows.forEachIndexed { pos, (i, t) ->
+                        item("trend$i") {
+                            PosterRow(t.first, t.second, setHero, onOpen, onRowFocus = { alignRow(pos) })
                         }
                     }
-                    items(s.categories.filter { !Library.isHidden(s.kind, it.id) }, key = { it.id }) { cat ->
+                    itemsIndexed(cats, key = { _, c -> c.id }) { ci, cat ->
                         LaunchedEffect(cat.id) { VodLoader.row(s, cat.id) }
                         PosterRow(cat.title, s.rowItems[cat.id], setHero, onOpen, onSeeAll = { openGrid(cat.id) },
-                            focusSeeAll = s.returnTo == cat.id, onSeeAllFocused = { s.returnTo = null })
+                            focusSeeAll = s.returnTo == cat.id, onSeeAllFocused = { s.returnTo = null },
+                            onRowFocus = { alignRow(trendRows.size + ci) })
                     }
                 }
             }
