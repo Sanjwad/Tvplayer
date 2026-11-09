@@ -291,20 +291,20 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
 
     @Composable
     fun xtreamFields() {
-        OutlinedTextField(
+        TvTextField(
             value = xtServer, onValueChange = { xtServer = it },
             label = { Text("Server (e.g. http://xt.example.com) or full M3U link") },
             singleLine = true, modifier = w.focusRequester(fr),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
         )
         Spacer(Modifier.height(10.dp))
-        OutlinedTextField(
+        TvTextField(
             value = xtUser, onValueChange = { xtUser = it.trim() },
             label = { Text("Username") }, singleLine = true, modifier = w,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
         )
         Spacer(Modifier.height(10.dp))
-        OutlinedTextField(
+        TvTextField(
             value = xtPass, onValueChange = { xtPass = it.trim() },
             label = { Text("Password") }, singleLine = true, modifier = w,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
@@ -313,14 +313,14 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
 
     @Composable
     fun stalkerFields() {
-        OutlinedTextField(
+        TvTextField(
             value = stPortal, onValueChange = { stPortal = it.trim() },
             label = { Text("Portal address (e.g. http://portal.example.com/c/)") },
             singleLine = true, modifier = w.focusRequester(fr),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
         )
         Spacer(Modifier.height(10.dp))
-        OutlinedTextField(
+        TvTextField(
             value = stMac, onValueChange = { stMac = it.trim() },
             label = { Text("MAC address (00:1A:79:…)") }, singleLine = true, modifier = w,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
@@ -332,13 +332,13 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
         }
         if (stMore) {
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(value = stSerial, onValueChange = { stSerial = it.trim() }, label = { Text("Serial number") },
+            TvTextField(value = stSerial, onValueChange = { stSerial = it.trim() }, label = { Text("Serial number") },
                 singleLine = true, modifier = w, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii))
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(value = stDev, onValueChange = { stDev = it.trim() }, label = { Text("Device ID") },
+            TvTextField(value = stDev, onValueChange = { stDev = it.trim() }, label = { Text("Device ID") },
                 singleLine = true, modifier = w, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii))
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(value = stDev2, onValueChange = { stDev2 = it.trim() }, label = { Text("Device ID 2") },
+            TvTextField(value = stDev2, onValueChange = { stDev2 = it.trim() }, label = { Text("Device ID 2") },
                 singleLine = true, modifier = w, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii))
         }
     }
@@ -459,7 +459,7 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
                 Text(if (ca.sanjwad.tvplayer.BuildConfig.TMDB_KEY.isNotBlank()) "Optional. Sanj TV already has a built-in key; leave this empty to use it."
                     else "Optional. Adds Trending rows and episode descriptions.", fontSize = 13.sp, color = TextDim)
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
+                TvTextField(
                     value = tmdbKey, onValueChange = { tmdbKey = it.trim(); tmdbSaved = false },
                     label = { Text("TMDB key") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
@@ -469,7 +469,7 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
                 Text(if (ca.sanjwad.tvplayer.BuildConfig.OMDB_KEY.isNotBlank()) "Optional. A built-in key is already used."
                     else "Optional. Free from omdbapi.com; adds IMDb ratings to movie and show pages.", fontSize = 13.sp, color = TextDim)
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
+                TvTextField(
                     value = omdbKey, onValueChange = { omdbKey = it.trim(); tmdbSaved = false },
                     label = { Text("OMDb key") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
@@ -479,15 +479,15 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
                 Text((if (ca.sanjwad.tvplayer.BuildConfig.OPENSUBS_KEY.isNotBlank()) "A built-in key is used; the key field is optional. " else
                     "Free account and API key from opensubtitles.com. ") + "Logging in raises the daily download limit.", fontSize = 13.sp, color = TextDim)
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(value = osKey, onValueChange = { osKey = it.trim(); tmdbSaved = false },
+                TvTextField(value = osKey, onValueChange = { osKey = it.trim(); tmdbSaved = false },
                     label = { Text("OpenSubtitles API key") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii))
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(value = osUser, onValueChange = { osUser = it.trim(); tmdbSaved = false },
+                    TvTextField(value = osUser, onValueChange = { osUser = it.trim(); tmdbSaved = false },
                         label = { Text("Username") }, singleLine = true, modifier = Modifier.weight(1f),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii))
-                    OutlinedTextField(value = osPass, onValueChange = { osPass = it; tmdbSaved = false },
+                    TvTextField(value = osPass, onValueChange = { osPass = it; tmdbSaved = false },
                         label = { Text("Password") }, singleLine = true, modifier = Modifier.weight(1f),
                         visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
@@ -1367,4 +1367,28 @@ fun PortalLogScreen(onClose: () -> Unit) {
             }
         }
     }
+}
+
+/**
+ * A text box for the remote: moving onto it doesn't pop up the keyboard, so you can scroll past it
+ * with up/down. Press OK on it to type.
+ */
+@Composable
+fun TvTextField(
+    value: String, onValueChange: (String) -> Unit,
+    label: @Composable (() -> Unit)? = null, singleLine: Boolean = false, modifier: Modifier = Modifier,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    visualTransformation: androidx.compose.ui.text.input.VisualTransformation = androidx.compose.ui.text.input.VisualTransformation.None,
+) {
+    val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    OutlinedTextField(
+        value = value, onValueChange = onValueChange, label = label, singleLine = singleLine,
+        modifier = modifier.onPreviewKeyEvent { e ->
+            val ok = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
+            if (ok && e.type == KeyEventType.KeyUp) kb?.show()
+            ok
+        },
+        keyboardOptions = keyboardOptions.copy(showKeyboardOnFocus = false),
+        visualTransformation = visualTransformation,
+    )
 }
