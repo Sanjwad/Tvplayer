@@ -8,6 +8,12 @@ on:
 permissions:
   contents: write
 
+# A newer push replaces a build still running for the same branch, instead of two builds
+# racing to publish the same release (that race was what sent the "failed" emails).
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
