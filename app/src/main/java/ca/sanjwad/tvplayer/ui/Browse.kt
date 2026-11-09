@@ -369,10 +369,17 @@ object VodLoader {
 
     suspend fun row(s: VodState, categoryId: String) {
         if (s.rowItems[categoryId] != null) return
-        val list = withContext(Dispatchers.IO) {
-            runCatching { Session.client?.vodPage(s.type, categoryId, 1)?.items }.getOrNull()
+        // A failed request isn't an empty row: keep it "Loading…" and keep trying while it's on screen
+        // (this stops when the row scrolls away, and starts again when it comes back).
+        var attempt = 0
+        while (s.rowItems[categoryId] == null) {
+            val list = withContext(Dispatchers.IO) {
+                runCatching { Session.client?.vodPage(s.type, categoryId, 1)?.items }.getOrNull()
+            }
+            if (list != null) { if (s.rowItems[categoryId] == null) s.rowItems[categoryId] = list.take(40); break }
+            attempt++
+            delay(minOf(2_000L * attempt, 15_000L))
         }
-        if (s.rowItems[categoryId] == null) s.rowItems[categoryId] = list.orEmpty().take(40)
     }
 
     /** Everything the top of the tab needs: categories, trending rows, the first few category rows. */
