@@ -42,6 +42,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -189,7 +191,11 @@ fun App() {
                     onPick = { t, i -> stack.add(DetailReq(t, i, null)) })
                 top is CastNav -> CastBrowser(top, onClose = { pop() }, onPick = { t, i -> stack.add(DetailReq(t, i, null)) })
                 else -> HomeScreen(
-                    section = section, onSection = { section = it }, live = live, movies = movies, series = series,
+                    section = section, onSection = {
+                        // Picking Movies/TV Shows again from inside "See all" goes back to its main page, like Back.
+                        if (it == section) when (it) { 1 -> movies.gridMode = false; 2 -> series.gridMode = false }
+                        section = it
+                    }, live = live, movies = movies, series = series,
                     onOpen = { type, item, seasonId -> stack.add(DetailReq(type, item, seasonId)) },
                     onSettings = { screen = "setup" },
                 )
@@ -690,10 +696,24 @@ fun ChannelGuide(c: ca.sanjwad.tvplayer.stalker.Channel) {
 }
 
 @Composable
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 private fun SideList(entries: List<Genre>, selected: String?, width: Int, onPick: (Genre) -> Unit) {
-    LazyColumn(Modifier.width(width.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    // Moving into this column from either side lands on the category you're viewing, not a random one.
+    val sel = remember { FocusRequester() }
+    var shownId by remember { mutableStateOf<String?>(null) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState(
+        entries.indexOfFirst { it.id == selected }.coerceAtLeast(0))
+    LazyColumn(
+        Modifier.width(width.dp).fillMaxHeight()
+            .focusProperties { enter = { if (shownId != null && shownId == selected) sel else FocusRequester.Default } }
+            .focusGroup(),
+        state = listState, verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
         items(entries) { g ->
-            FocusBox(onClick = { onPick(g) }, modifier = Modifier.fillMaxWidth(), selected = g.id == selected) {
+            val isSel = g.id == selected
+            if (isSel) androidx.compose.runtime.DisposableEffect(g.id) { shownId = g.id; onDispose { if (shownId == g.id) shownId = null } }
+            FocusBox(onClick = { onPick(g) }, modifier = Modifier.fillMaxWidth().then(if (isSel) Modifier.focusRequester(sel) else Modifier),
+                selected = isSel) {
                 Text(g.title, Modifier.padding(12.dp), fontSize = 17.sp,
                     color = if (g.id == FAV_ID || g.id == LIST_ID) Gold else Color.White,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
