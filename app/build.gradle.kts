@@ -15,6 +15,7 @@ android {
     defaultConfig {
         applicationId = if (testBuild) "ca.sanjwad.tvplayer.test" else "ca.sanjwad.tvplayer"
         manifestPlaceholders["appLabel"] = if (testBuild) "Sanj TV Test" else "Sanj TV"
+        manifestPlaceholders["appBanner"] = if (testBuild) "@drawable/banner_test" else "@drawable/banner"
         buildConfigField("String", "UPDATE_TAG", "\"${if (testBuild) "stalker-test" else "latest"}\"")
         buildConfigField("boolean", "TEST_BUILD", "$testBuild")
         minSdk = 25

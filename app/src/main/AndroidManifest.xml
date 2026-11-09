@@ -9,7 +9,7 @@
     <application
         android:label="${appLabel}"
         android:icon="@drawable/ic_launcher"
-        android:banner="@drawable/banner"
+        android:banner="${appBanner}"
         android:usesCleartextTraffic="true"
         android:largeHeap="true"
         android:supportsRtl="true"
