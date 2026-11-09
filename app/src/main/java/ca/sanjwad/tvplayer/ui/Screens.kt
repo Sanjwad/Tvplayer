@@ -567,6 +567,8 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
     var importOffer by remember { mutableStateOf<Library.OldAccount?>(null) }
     var importing by remember { mutableStateOf(false) }
     val importChoice = remember { kotlinx.coroutines.CompletableDeferred<Boolean>() }
+    var syncAsk by remember { mutableStateOf(false) }
+    val syncChoice = remember { kotlinx.coroutines.CompletableDeferred<Boolean>() }
     var showLog by remember { mutableStateOf(false) }
 
     LaunchedEffect(attempt) {
@@ -583,7 +585,16 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
             }
         }
         r.onSuccess { c ->
-            Library.load(ctx, prefs.accountKey); ca.sanjwad.tvplayer.Sync.start(prefs)
+            Library.load(ctx, prefs.accountKey)
+            // A brand-new TV (nothing saved yet) asks before joining the family's lists.
+            if (!prefs.syncAsked && Library.favourites.isEmpty() && Library.myList.isEmpty() && Library.watched.isEmpty()) {
+                syncAsk = true
+                val share = syncChoice.await()
+                prefs.syncOn = share
+                syncAsk = false
+            }
+            prefs.syncAsked = true
+            ca.sanjwad.tvplayer.Sync.start(prefs)
             // Your own key if you entered one, otherwise the key built into the app.
             Session.tmdb = prefs.tmdbKey.ifBlank { ca.sanjwad.tvplayer.BuildConfig.TMDB_KEY }
                 .takeIf { it.isNotBlank() }?.let { ca.sanjwad.tvplayer.stalker.TmdbClient(it) }
@@ -635,6 +646,26 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
 
     // Drawn after the LaunchedEffects so returning early never removes (and cancels)
     // the connect coroutine that is waiting on importChoice.
+    if (syncAsk) {
+        val yes = remember { FocusRequester() }
+        LaunchedEffect(Unit) { focusSoon(yes) }
+        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Text("Share lists with your other TVs?", fontSize = 26.sp, color = Color.White, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            Text("Sharing keeps My List, favourite channels and watched episodes the same on every TV that uses this login.",
+                fontSize = 16.sp, color = TextDim, modifier = Modifier.width(620.dp))
+            Spacer(Modifier.height(4.dp))
+            Text("You can change this later in Settings, or give this TV its own sync name.",
+                fontSize = 13.sp, color = TextDim, modifier = Modifier.width(620.dp))
+            Spacer(Modifier.height(22.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TvButton("Yes, share with my other TVs", onClick = { syncChoice.complete(true) }, modifier = Modifier.focusRequester(yes))
+                TvButton("No, keep this TV separate", onClick = { syncChoice.complete(false) })
+            }
+        }
+        return
+    }
+
     importOffer?.let { old ->
         if (importing) { CenterMessage("Bringing over your lists…", "Matching titles and channels on the new server.", loading = true); return }
         val yes = remember { FocusRequester() }

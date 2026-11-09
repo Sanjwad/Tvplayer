@@ -66,6 +66,10 @@ class Prefs(ctx: Context) {
     var syncOn: Boolean
         get() = sp.getBoolean("sync_on", true)
         set(v) = sp.edit().putBoolean("sync_on", v).apply()
+    /** Whether this TV has been asked if it should share lists (only new, empty TVs are asked). */
+    var syncAsked: Boolean
+        get() = sp.getBoolean("sync_asked", false)
+        set(v) = sp.edit().putBoolean("sync_asked", v).apply()
     /** TVs with the same sync name share lists ("Family" by default; a different name keeps a separate set). */
     var syncName: String
         get() = sp.getString("sync_name", "Family").orEmpty().ifBlank { "Family" }
