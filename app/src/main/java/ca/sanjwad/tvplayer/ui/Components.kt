@@ -72,7 +72,8 @@ fun Logo(size: androidx.compose.ui.unit.TextUnit = 24.sp, modifier: Modifier = M
             Spacer(Modifier.width((size.value * 0.4f).dp))
             Text("TEST", Modifier.clip(RoundedCornerShape(5.dp)).background(Color(0xFFFF9800))
                 .padding(horizontal = (size.value * 0.3f).dp, vertical = 1.dp),
-                fontWeight = FontWeight.Bold, fontSize = (size.value * 0.55f).sp, color = Color.Black, letterSpacing = 1.sp)
+                fontWeight = FontWeight.Bold, fontSize = (size.value * 0.5f).sp, color = Color.Black, letterSpacing = 0.5.sp,
+                maxLines = 1, softWrap = false)
         }
     }
 }
