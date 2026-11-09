@@ -1,5 +1,7 @@
 package ca.sanjwad.tvplayer.stalker
 
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -28,7 +30,7 @@ object PortalLog {
 
     @Synchronized fun add(s: String) {
         lines.addLast("${fmt.format(java.util.Date())}  $s")
-        while (lines.size > 200) lines.removeFirst()
+        while (lines.size > 600) lines.removeFirst()
     }
 
     /** Short summary of the last play attempt, shown pinned at the top of the log. */
@@ -36,6 +38,35 @@ object PortalLog {
 
     @Synchronized fun all(): List<String> = lines.toList()
     @Synchronized fun clear() = lines.clear()
+
+    /**
+     * Uploads the log (MAC addresses hidden) to a public paste site that deletes it after a couple of
+     * days, and returns the link, so it can be read in full instead of photographed.
+     */
+    fun share(): String {
+        val mac = Regex("[0-9A-Fa-f]{2}(?:(?::|%3A|%3a)[0-9A-Fa-f]{2}){5}")
+        val text = (listOf("Sanj TV portal log, ${java.util.Date()}", "", "PINNED:") + pinned +
+            listOf("", "LOG (oldest first):") + all()).joinToString("\n").replace(mac, "[MAC hidden]")
+        val http = okhttp3.OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).build()
+        val tries = listOf(
+            okhttp3.Request.Builder().url("https://dpaste.com/api/v2/").header("User-Agent", "SanjTV/1.0")
+                .post(okhttp3.FormBody.Builder().add("content", text).add("syntax", "text")
+                    .add("expiry_days", "2").add("title", "Sanj TV portal log").build()).build(),
+            okhttp3.Request.Builder().url("https://paste.rs/").header("User-Agent", "SanjTV/1.0")
+                .post(text.toRequestBody("text/plain".toMediaType())).build(),
+        )
+        var err = "no reply"
+        for (req in tries) {
+            try {
+                http.newCall(req).execute().use { r ->
+                    val link = r.body?.string().orEmpty().trim().ifBlank { r.header("Location").orEmpty() }
+                    if (r.isSuccessful && link.startsWith("http")) return link
+                    err = "${req.url.host} replied ${r.code}"
+                }
+            } catch (e: Exception) { err = "${req.url.host}: ${e.message ?: e.javaClass.simpleName}" }
+        }
+        throw IOException("Couldn't upload the log ($err).")
+    }
 }
 
 /**
@@ -143,10 +174,14 @@ class StalkerClient(
 
     /** Portals throttle a MAC that fires many requests at once, so at most three go out together. */
     private val gate = java.util.concurrent.Semaphore(3, true)
+    /** Background paging (the whole catalogue, for trending rows) gets its own single lane so it never holds up the screen. */
+    private val bgGate = java.util.concurrent.Semaphore(1, true)
+    private val background = ThreadLocal.withInitial { false }
 
     private fun request(base: String, params: Map<String, String>): JSONObject {
-        gate.acquire()
-        try { return requestNow(base, params) } finally { gate.release() }
+        val g = if (background.get()) bgGate else gate
+        g.acquire()
+        try { return requestNow(base, params) } finally { g.release() }
     }
 
     private fun requestNow(base: String, params: Map<String, String>): JSONObject {
@@ -415,11 +450,15 @@ class StalkerClient(
      * hundreds of calls. The newest few hundred are enough to match trending lists.
      */
     override fun catalogue(type: String): List<VodItem> = catalogueCache.getOrPut(type) {
-        allPages(
-            mapOf("type" to type, "action" to "get_ordered_list", "category" to "*", "genre" to "*",
-                "sortby" to "added", "fav" to "0"),
-            maxPages = 30,
-        ).map { toVod(it, type) }.distinctBy { it.id }
+        // This portal has ~100,000 titles at 14 a page, so this is slow: run it in the background lane.
+        background.set(true)
+        try {
+            allPages(
+                mapOf("type" to type, "action" to "get_ordered_list", "category" to "*", "genre" to "*",
+                    "sortby" to "added", "fav" to "0"),
+                maxPages = 30,
+            ).map { toVod(it, type) }.distinctBy { it.id }
+        } finally { background.set(false) }
     }
 
     override fun seasons(type: String, item: VodItem): List<Season> {

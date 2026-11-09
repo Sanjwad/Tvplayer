@@ -372,8 +372,9 @@ object VodLoader {
     suspend fun preload(s: VodState) {
         categories(s, showErrors = false)
         if (!s.catsLoaded) return
-        trending(s)
+        // The rows you see first, then the slow trending rows.
         s.categories.filter { !Library.isHidden(s.kind, it.id) }.take(4).forEach { row(s, it.id) }
+        trending(s)
     }
 }
 

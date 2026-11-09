@@ -1282,6 +1282,8 @@ private fun WatchedMenu(title: String, options: List<Pair<String, () -> Unit>>, 
 @Composable
 fun PortalLogScreen(onClose: () -> Unit) {
     var lines by remember { mutableStateOf(ca.sanjwad.tvplayer.stalker.PortalLog.all().reversed()) }
+    var shareMsg by remember { mutableStateOf<String?>(null) }
+    val shareScope = rememberCoroutineScope()
     val fr = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusSoon(fr) }
     Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 24.dp)) {
@@ -1289,9 +1291,27 @@ fun PortalLogScreen(onClose: () -> Unit) {
             Text("Portal log", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
             TvButton("Refresh", onClick = { lines = ca.sanjwad.tvplayer.stalker.PortalLog.all().reversed() }, modifier = Modifier.focusRequester(fr))
             Spacer(Modifier.width(10.dp))
+            TvButton("Share log", onClick = {
+                if (shareMsg != "Uploading…") {
+                    shareMsg = "Uploading…"
+                    shareScope.launch {
+                        shareMsg = withContext(Dispatchers.IO) {
+                            runCatching { ca.sanjwad.tvplayer.stalker.PortalLog.share() }
+                                .fold({ "Send this link to Claude:  $it" }, { it.message ?: "Couldn't upload the log." })
+                        }
+                    }
+                }
+            })
+            Spacer(Modifier.width(10.dp))
             TvButton("Close", onClick = onClose)
         }
-        Text("Newest first. Take a photo of this screen if something doesn't work.", fontSize = 13.sp, color = TextDim)
+        shareMsg?.let {
+            Spacer(Modifier.height(6.dp))
+            Text(it, fontSize = if (it.startsWith("Send")) 24.sp else 16.sp, fontWeight = FontWeight.Bold,
+                color = if (it.startsWith("Couldn't")) ErrorRed else LogoYellow)
+            Spacer(Modifier.height(6.dp))
+        }
+        Text("Newest first. Take a photo of this screen, or press Share log, if something doesn't work.", fontSize = 13.sp, color = TextDim)
         Spacer(Modifier.height(10.dp))
         val pinned = ca.sanjwad.tvplayer.stalker.PortalLog.pinned
         if (pinned.isNotEmpty()) {
