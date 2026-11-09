@@ -345,8 +345,7 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
 
     @Composable
     fun loginFields() {
-        // Stalker is still being tested: only the test build offers it (or a phone already set up with it).
-        if (ca.sanjwad.tvplayer.BuildConfig.TEST_BUILD || prefs.isStalker) Row(w, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(w, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             listOf(false to "Xtream login", true to "Stalker portal (MAC)").forEach { (st, label) ->
                 FocusBox(onClick = { stalker = st; err = null }, selected = stalker == st, shape = RoundedCornerShape(8.dp)) {
                     Text(label, Modifier.padding(horizontal = 16.dp, vertical = 10.dp), fontSize = 15.sp,
@@ -1328,7 +1327,8 @@ fun PortalLogScreen(onClose: () -> Unit) {
             Text("Portal log", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
             TvButton("Refresh", onClick = { lines = ca.sanjwad.tvplayer.stalker.PortalLog.all().reversed() }, modifier = Modifier.focusRequester(fr))
             Spacer(Modifier.width(10.dp))
-            TvButton("Share log", onClick = {
+            // The upload site isn't one Claude can open yet, so only the test build offers this.
+            if (ca.sanjwad.tvplayer.BuildConfig.TEST_BUILD) TvButton("Share log", onClick = {
                 if (shareMsg != "Uploading…") {
                     shareMsg = "Uploading…"
                     shareScope.launch {
@@ -1348,7 +1348,7 @@ fun PortalLogScreen(onClose: () -> Unit) {
                 color = if (it.startsWith("Couldn't")) ErrorRed else LogoYellow)
             Spacer(Modifier.height(6.dp))
         }
-        Text("Newest first. Take a photo of this screen, or press Share log, if something doesn't work.", fontSize = 13.sp, color = TextDim)
+        Text("Newest first. Take a photo of this screen if something doesn't work.", fontSize = 13.sp, color = TextDim)
         Spacer(Modifier.height(10.dp))
         val pinned = ca.sanjwad.tvplayer.stalker.PortalLog.pinned
         if (pinned.isNotEmpty()) {
