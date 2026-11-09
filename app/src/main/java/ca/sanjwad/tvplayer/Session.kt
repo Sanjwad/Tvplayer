@@ -62,6 +62,14 @@ class Prefs(ctx: Context) {
     var startOnLastChannel: Boolean
         get() = sp.getBoolean("start_last_channel", true)
         set(v) = sp.edit().putBoolean("start_last_channel", v).apply()
+    /** Share My List, favourites and watched progress with other TVs on the same login. */
+    var syncOn: Boolean
+        get() = sp.getBoolean("sync_on", true)
+        set(v) = sp.edit().putBoolean("sync_on", v).apply()
+    /** TVs with the same sync name share lists ("Family" by default; a different name keeps a separate set). */
+    var syncName: String
+        get() = sp.getString("sync_name", "Family").orEmpty().ifBlank { "Family" }
+        set(v) = sp.edit().putString("sync_name", v.trim().ifBlank { "Family" }).apply()
     /** "xtream" or "stalker". */
     var loginType: String
         get() = sp.getString("login_type", "xtream").orEmpty()

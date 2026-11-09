@@ -33,12 +33,25 @@ object Sync {
 
     /** Start syncing for this login (call after [Library.load]). */
     fun start(prefs: Prefs) {
+        stop()
         if (BASE.isBlank()) return
+        if (!prefs.syncOn) { status = "Off on this TV"; return }
         val secret = if (prefs.isStalker) "stalker|${prefs.accountKey}" else "xtream|${prefs.accountKey}|${prefs.xtPass}"
-        householdKey = sha256("sanjtv-sync-v1|$secret")
+        // "Family" keeps the original key, so TVs set up before sync names existed stay together.
+        val name = prefs.syncName.trim().lowercase()
+        householdKey = sha256("sanjtv-sync-v1|$secret" + if (name == "family") "" else "|name:$name")
         Library.onChange = { schedule(5) }
         poller?.cancel(false)
         poller = worker.scheduleWithFixedDelay({ runOnce() }, 0, 3, TimeUnit.MINUTES)
+    }
+
+    /** Stop syncing on this TV (lists stay as they are here). */
+    fun stop() {
+        householdKey = null
+        Library.onChange = null
+        poller?.cancel(false); poller = null
+        synchronized(this) { pending?.cancel(false); pending = null }
+        status = ""
     }
 
     /** Sync now (e.g. when the app comes back to the front). */
