@@ -54,7 +54,8 @@ private val Poppins = androidx.compose.ui.text.font.FontFamily(
 /** The Sanj TV logo: the little TV mark plus "SANJ TV". */
 @Composable
 fun Logo(size: androidx.compose.ui.unit.TextUnit = 24.sp, modifier: Modifier = Modifier) {
-    androidx.compose.foundation.layout.Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+  Column(modifier) {
+    androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
         androidx.compose.foundation.Image(
             painter = androidx.compose.ui.res.painterResource(ca.sanjwad.tvplayer.R.drawable.ic_launcher),
             contentDescription = null,
@@ -69,6 +70,14 @@ fun Logo(size: androidx.compose.ui.unit.TextUnit = 24.sp, modifier: Modifier = M
             modifier = Modifier.height((size.value * 0.92f).dp).width((size.value * 0.92f * 92f / 62f).dp),
         )
     }
+    if (ca.sanjwad.tvplayer.BuildConfig.TEST_BUILD) {
+        Spacer(Modifier.height(4.dp))
+        Text("TEST VERSION", Modifier.padding(start = (size.value * 1.9f).dp).clip(RoundedCornerShape(5.dp)).background(Color(0xFFFF9800))
+            .padding(horizontal = 8.dp, vertical = 1.dp),
+            fontWeight = FontWeight.Bold, fontSize = (size.value * 0.5f).sp, color = Color.Black, letterSpacing = 1.sp,
+            maxLines = 1, softWrap = false)
+    }
+  }
 }
 
 @Composable
