@@ -68,6 +68,12 @@ fun Logo(size: androidx.compose.ui.unit.TextUnit = 24.sp, modifier: Modifier = M
             contentDescription = "TV",
             modifier = Modifier.height((size.value * 0.92f).dp).width((size.value * 0.92f * 92f / 62f).dp),
         )
+        if (ca.sanjwad.tvplayer.BuildConfig.TEST_BUILD) {
+            Spacer(Modifier.width((size.value * 0.4f).dp))
+            Text("TEST", Modifier.clip(RoundedCornerShape(5.dp)).background(Color(0xFFFF9800))
+                .padding(horizontal = (size.value * 0.3f).dp, vertical = 1.dp),
+                fontWeight = FontWeight.Bold, fontSize = (size.value * 0.55f).sp, color = Color.Black, letterSpacing = 1.sp)
+        }
     }
 }
 
