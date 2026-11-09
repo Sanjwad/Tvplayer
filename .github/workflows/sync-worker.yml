@@ -59,5 +59,10 @@ jobs:
         run: |
           url="https://sanjtv-sync.$SUB.workers.dev"
           echo "SYNC_URL=$url"
-          for i in 1 2 3 4 5 6; do curl -fsS "$url/" && echo && exit 0; sleep 10; done
-          echo "::warning::not answering yet (new addresses can take a minute)"
+          ok=0; for i in 1 2 3 4 5 6; do curl -fsS "$url/" && echo && ok=1 && break; sleep 10; done
+          [ $ok = 1 ] || { echo "::warning::not answering yet (new addresses can take a minute)"; exit 0; }
+          # Save and read back a test document under a throwaway key.
+          k=$(head -c 32 /dev/urandom | sha256sum | cut -c1-64)
+          curl -fsS -X PUT -H "Content-Type: application/json" --data '{"v":1,"items":{"test":1}}' "$url/v1/$k" && echo
+          got=$(curl -fsS "$url/v1/$k"); echo "read back: $got"
+          [ "$got" = '{"v":1,"items":{"test":1}}' ] && echo "SYNC TEST PASSED" || { echo "::error::sync test failed"; exit 1; }
