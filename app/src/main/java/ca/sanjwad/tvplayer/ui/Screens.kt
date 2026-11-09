@@ -1095,6 +1095,18 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
             "season" to sn.toString(), "episode" to en.toString()))
     }
 
+    // Autoplay: an episode just finished, so count down to the next one (unless cancelled).
+    var upNext by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
+    LaunchedEffect(Session.episodeEnded) {
+        if (Session.episodeEnded != item.id) return@LaunchedEffect
+        Session.episodeEnded = null
+        val ss = seasons.orEmpty()
+        val (s, ep, num) = Library.nextEpisode(ss, Library.watched[item.id]) ?: return@LaunchedEffect
+        val si = ss.indexOf(s); val ei = s.episodes.orEmpty().indexOf(ep)
+        if (si < 0 || ei < 0) return@LaunchedEffect
+        upNext = "S${num.first} E${num.second}  ·  ${ep.title}" to { playEpisode(s, si, ep, ei) }
+    }
+
     LaunchedEffect(item.id) {
         if (item.isSeries) {
             if (seasons == null) {
@@ -1278,6 +1290,34 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
             }
         }
         menu?.let { (title, options) -> WatchedMenu(title, options, onClose = { menu = null }) }
+        upNext?.let { (label, go) -> UpNextDialog(label, onPlay = { upNext = null; go() }, onCancel = { upNext = null }) }
+    }
+}
+
+/** "Next episode in 10…": plays automatically unless you choose Not now (or press Back). */
+@Composable
+private fun UpNextDialog(label: String, onPlay: () -> Unit, onCancel: () -> Unit) {
+    var left by remember { mutableIntStateOf(10) }
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        delay(100); runCatching { first.requestFocus() }
+        while (left > 0) { delay(1000); left-- }
+        onPlay()
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onCancel,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.width(520.dp).clip(RoundedCornerShape(14.dp)).background(Panel).padding(28.dp)) {
+            Text("Up next", fontSize = 14.sp, color = TextDim)
+            Spacer(Modifier.height(4.dp))
+            Text(label, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(6.dp))
+            Text("Playing in $left…", fontSize = 15.sp, color = LogoYellow)
+            Spacer(Modifier.height(18.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TvButton("▶  Play now", onClick = onPlay, modifier = Modifier.focusRequester(first))
+                TvButton("Not now", onClick = onCancel)
+            }
+        }
     }
 }
 

@@ -217,6 +217,12 @@ class PlayerActivity : ComponentActivity() {
                     }
                     if (resumeKey != null) { saver.removeCallbacks(saveTick); saver.postDelayed(saveTick, 15_000) }
                 }
+                // An episode played to the end: go back to the show, which counts down to the next one.
+                if (state == Player.STATE_ENDED && liveIndex < 0 && !isCatchup && intent.getStringExtra("is_series") == "1") {
+                    intent.getStringExtra("series_id")?.let { ca.sanjwad.tvplayer.Session.episodeEnded = it }
+                    finish()
+                    return
+                }
                 if (state == Player.STATE_READY && liveIndex < 0 && asHls != prefs.getBoolean("vod_hls", false)) {
                     prefs.edit().putBoolean("vod_hls", asHls).apply()
                 }

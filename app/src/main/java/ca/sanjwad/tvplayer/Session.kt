@@ -8,6 +8,8 @@ import ca.sanjwad.tvplayer.stalker.IptvSource
 
 /** Shared between the browse screens and the player. */
 object Session {
+    /** Set by the player when a show's episode plays to the end (the show's id), so its page can offer the next one. */
+    var episodeEnded by androidx.compose.runtime.mutableStateOf<String?>(null)
     @Volatile var client: IptvSource? = null
     @Volatile var channels: List<Channel> = emptyList()
     /** Seasons per series id, so My List doesn't refetch them every visit. */
