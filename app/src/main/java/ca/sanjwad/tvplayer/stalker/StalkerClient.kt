@@ -439,30 +439,51 @@ class StalkerClient(
     }
 
     override fun search(type: String, query: String): List<VodItem> {
-        // Search the copy on the TV once there is one: the portal's own search times out on big catalogues.
-        index?.takeIf { it.count() > 0 }?.let { idx ->
-            val hits = idx.search(query)
-            return if (type == "series") hits.filter { it.isSeries } else hits
+        // Like Chris's player: ask the portal with just the search text (no sorting or category,
+        // which makes big portals time out), with fallbacks for punctuation and long titles.
+        val clean = query.replace(Regex("\\(\\d{4}\\)|\\b(19|20)\\d{2}\\s*$"), " ").replace(Regex("\\s+"), " ").trim()
+        fun ask(q: String): List<VodItem>? = runCatching {
+            call(mapOf("type" to type, "action" to "get_ordered_list", "search" to q, "p" to "1"))
+                .optJSONObject("js")?.optJSONArray("data").mapObjects { toVod(it, type) }
+        }.onFailure { PortalLog.add("search \"$q\": ${it.javaClass.simpleName} ${it.message.orEmpty()}") }.getOrNull()
+
+        val words = clean.split(" ").filter { it.isNotBlank() }
+        val tries = listOf(
+            clean,
+            clean.replace(Regex("['’`]"), ""),
+            clean.replace(Regex("[^\\p{L}\\p{N} ]"), " ").replace(Regex("\\s+"), " ").trim(),
+            words.take(2).joinToString(" "),
+            words.maxByOrNull { it.length }.orEmpty(),
+        ).filter { it.length >= 2 }.distinct()
+
+        // Titles already on the TV (the newest few thousand) answer instantly.
+        val local = index?.takeIf { it.count() > 0 }?.search(clean).orEmpty()
+        var remote = emptyList<VodItem>()
+        for (q in tries) {
+            // A timeout means the portal is struggling: don't pile more searches on it.
+            remote = ask(q) ?: break
+            if (remote.any { relevance(it, clean) < 4 }) break
         }
-        fun fetch(q: String, pages: Int) = runCatching {
-            allPages(
-                mapOf("type" to type, "action" to "get_ordered_list", "category" to "*", "genre" to "*",
-                    "search" to q, "sortby" to "added", "fav" to "0"),
-                maxPages = pages,
-            ).map { toVod(it, type) }
+        val all = (local + remote).distinctBy { it.id }
+            .map { it to relevance(it, clean) }.filter { it.second < 5 }
+            .sortedBy { it.second }.map { it.first }
+        return if (type == "series") all.filter { it.isSeries } else all
+    }
+
+    /** 1 exact title, 2 starts with the search, 3 contains every word, 4 found in the plot, 5 no match. */
+    private fun relevance(v: VodItem, query: String): Int {
+        val q = TitleMatch.norm(query)
+        val t = TitleMatch.norm(v.name)
+        val words = q.split(" ").filter { it.isNotBlank() }
+        val tw = t.split(" ")
+        return when {
+            q.isBlank() -> 5
+            t == q -> 1
+            t.startsWith(q) -> 2
+            words.all { w -> tw.any { it.startsWith(w) } } -> 3
+            TitleMatch.norm(v.description).contains(q) -> 4
+            else -> 5
         }
-        // The portal matches the text exactly, so "Mission Impossible" misses "Mission: Impossible – Fallout".
-        // Ask for the longest word too, then keep titles that contain every word, ignoring punctuation.
-        val words = TitleMatch.norm(query).split(" ").filter { it.isNotBlank() }
-        fun matches(v: VodItem) = TitleMatch.norm(v.name).split(" ").toSet().let { t -> words.all { w -> t.any { it.startsWith(w) } } }
-        val exact = fetch(query, 3)
-        val hits = exact.getOrDefault(emptyList()).filter(::matches)
-        val out = if (hits.isNotEmpty() || words.size < 2) hits.ifEmpty { exact.getOrThrow() }
-        else {
-            val key = words.maxByOrNull { it.length }!!
-            fetch(key, 6).getOrDefault(emptyList()).filter(::matches)
-        }
-        return out.distinctBy { it.id }
     }
 
     private val catalogueCache = java.util.concurrent.ConcurrentHashMap<String, List<VodItem>>()
@@ -567,6 +588,7 @@ class StalkerClient(
     // ---------- movie list on the TV ----------
 
     @Volatile private var index: VodIndex? = null
+    private val NEWEST_PAGES = 150
     @Volatile private var syncStarted = false
 
     /** Progress of the movie-list download, shown on the Search screen ("" when done). */
@@ -637,7 +659,8 @@ class StalkerClient(
             val (first, total) = page(p)
             store(first)
             val per = first.size.coerceAtLeast(1)
-            val pages = (total + per - 1) / per
+            // Only the newest ~2,000 titles: enough for instant results; the portal's search covers the rest.
+            val pages = minOf((total + per - 1) / per, NEWEST_PAGES)
             PortalLog.add("movie list: downloading from page $p of $pages ($total titles)")
             val pool = java.util.concurrent.Executors.newFixedThreadPool(2)
             try {
@@ -646,7 +669,7 @@ class StalkerClient(
                     batch.map { n -> pool.submit<List<JSONObject>> { page(n).first } }.forEach { store(it.get()) }
                     p = batch.last()
                     idx.setMeta("next", (p + 1).toString())
-                    indexStatus = "Downloading the movie list for search: ${p * 100 / pages}% (${idx.count()} titles so far)"
+                    indexStatus = "Getting the newest titles: ${p * 100 / pages}%"
                 }
             } finally { pool.shutdown() }
             idx.setMeta("full", "1")
