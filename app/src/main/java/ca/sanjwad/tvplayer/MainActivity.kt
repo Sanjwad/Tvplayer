@@ -11,4 +11,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent { AppTheme { App() } }
     }
+
+    // Coming back to the app (e.g. after watching on another TV): pick up changes straight away.
+    override fun onResume() {
+        super.onResume()
+        Sync.now()
+    }
 }

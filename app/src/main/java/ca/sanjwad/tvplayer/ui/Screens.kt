@@ -549,7 +549,7 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
             }
         }
         r.onSuccess { c ->
-            Library.load(ctx, prefs.accountKey)
+            Library.load(ctx, prefs.accountKey); ca.sanjwad.tvplayer.Sync.start(prefs)
             // Your own key if you entered one, otherwise the key built into the app.
             Session.tmdb = prefs.tmdbKey.ifBlank { ca.sanjwad.tvplayer.BuildConfig.TMDB_KEY }
                 .takeIf { it.isNotBlank() }?.let { ca.sanjwad.tvplayer.stalker.TmdbClient(it) }
@@ -564,7 +564,7 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
                 if (yes) {
                     importing = true
                     val summary = withContext(Dispatchers.IO) { runCatching { Library.importFrom(old, c) }.getOrDefault("") }
-                    Library.load(ctx, prefs.accountKey)
+                    Library.load(ctx, prefs.accountKey); ca.sanjwad.tvplayer.Sync.start(prefs)
                     if (summary.isNotBlank()) android.widget.Toast.makeText(ctx, summary, android.widget.Toast.LENGTH_LONG).show()
                 } else Library.markAsked()
                 importOffer = null; importing = false
