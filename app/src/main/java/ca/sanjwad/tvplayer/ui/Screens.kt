@@ -345,8 +345,7 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
 
     @Composable
     fun loginFields() {
-        // Stalker is still being tested: only the test build offers it (or a phone already set up with it).
-        if (ca.sanjwad.tvplayer.BuildConfig.TEST_BUILD || prefs.isStalker) Row(w, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(w, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             listOf(false to "Xtream login", true to "Stalker portal (MAC)").forEach { (st, label) ->
                 FocusBox(onClick = { stalker = st; err = null }, selected = stalker == st, shape = RoundedCornerShape(8.dp)) {
                     Text(label, Modifier.padding(horizontal = 16.dp, vertical = 10.dp), fontSize = 15.sp,
@@ -539,7 +538,8 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
         val r = withContext(Dispatchers.IO) {
             runCatching {
                 val c: IptvSource = if (prefs.isStalker)
-                    ca.sanjwad.tvplayer.stalker.StalkerClient(prefs.stPortal, prefs.stMac, prefs.stSerial, prefs.stDeviceId, prefs.stDeviceId2)
+                    ca.sanjwad.tvplayer.stalker.StalkerClient(prefs.stPortal, prefs.stMac, prefs.stSerial, prefs.stDeviceId, prefs.stDeviceId2,
+                        java.io.File(ctx.filesDir, "vodindex"))
                 else XtreamClient(prefs.xtServer, prefs.xtUser, prefs.xtPass,
                     java.io.File(ctx.filesDir, "catalogue").apply { mkdirs() })
                 c.connect()
@@ -1318,6 +1318,8 @@ private fun WatchedMenu(title: String, options: List<Pair<String, () -> Unit>>, 
 @Composable
 fun PortalLogScreen(onClose: () -> Unit) {
     var lines by remember { mutableStateOf(ca.sanjwad.tvplayer.stalker.PortalLog.all().reversed()) }
+    var shareMsg by remember { mutableStateOf<String?>(null) }
+    val shareScope = rememberCoroutineScope()
     val fr = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusSoon(fr) }
     Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 24.dp)) {
@@ -1325,7 +1327,26 @@ fun PortalLogScreen(onClose: () -> Unit) {
             Text("Portal log", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
             TvButton("Refresh", onClick = { lines = ca.sanjwad.tvplayer.stalker.PortalLog.all().reversed() }, modifier = Modifier.focusRequester(fr))
             Spacer(Modifier.width(10.dp))
+            // The upload site isn't one Claude can open yet, so only the test build offers this.
+            if (ca.sanjwad.tvplayer.BuildConfig.TEST_BUILD) TvButton("Share log", onClick = {
+                if (shareMsg != "Uploading…") {
+                    shareMsg = "Uploading…"
+                    shareScope.launch {
+                        shareMsg = withContext(Dispatchers.IO) {
+                            runCatching { ca.sanjwad.tvplayer.stalker.PortalLog.share() }
+                                .fold({ "Send this link to Claude:  $it" }, { it.message ?: "Couldn't upload the log." })
+                        }
+                    }
+                }
+            })
+            Spacer(Modifier.width(10.dp))
             TvButton("Close", onClick = onClose)
+        }
+        shareMsg?.let {
+            Spacer(Modifier.height(6.dp))
+            Text(it, fontSize = if (it.startsWith("Send")) 24.sp else 16.sp, fontWeight = FontWeight.Bold,
+                color = if (it.startsWith("Couldn't")) ErrorRed else LogoYellow)
+            Spacer(Modifier.height(6.dp))
         }
         Text("Newest first. Take a photo of this screen if something doesn't work.", fontSize = 13.sp, color = TextDim)
         Spacer(Modifier.height(10.dp))

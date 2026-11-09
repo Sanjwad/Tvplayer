@@ -386,8 +386,9 @@ object VodLoader {
     suspend fun preload(s: VodState) {
         categories(s, showErrors = false)
         if (!s.catsLoaded) return
-        trending(s)
+        // The rows you see first, then the slow trending rows.
         s.categories.filter { !Library.isHidden(s.kind, it.id) }.take(4).forEach { row(s, it.id) }
+        trending(s)
     }
 }
 
@@ -510,6 +511,13 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
     Column(Modifier.fillMaxSize()) {
         SearchField(query, { query = it; wantResults = false }, "Search channels, movies and TV shows", Modifier.focusRequester(fr),
             onSearch = { wantResults = true })
+        val indexStatus by produceState((Session.client as? ca.sanjwad.tvplayer.stalker.StalkerClient)?.indexStatus.orEmpty()) {
+            while (true) { value = (Session.client as? ca.sanjwad.tvplayer.stalker.StalkerClient)?.indexStatus.orEmpty(); delay(3000) }
+        }
+        if (indexStatus.isNotBlank()) {
+            Spacer(Modifier.height(6.dp))
+            Text("$indexStatus  Results so far may be incomplete.", fontSize = 12.sp, color = LogoYellow, modifier = Modifier.padding(start = 4.dp))
+        }
         Spacer(Modifier.height(14.dp))
         val q = query.trim()
         if (q.length < 2) {
