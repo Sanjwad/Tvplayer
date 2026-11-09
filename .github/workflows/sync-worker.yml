@@ -36,13 +36,28 @@ jobs:
           fi
           echo "KV id: $id"
           sed -i "s/__KV_ID__/$id/" sync-worker/wrangler.toml
+      - name: Make sure the account has a workers.dev address
+        if: env.SKIP != '1'
+        run: |
+          api="https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/subdomain"
+          sub=$(curl -sS -H "Authorization: Bearer $CF_TOKEN" "$api" | jq -r '.result.subdomain // empty')
+          if [ -z "$sub" ]; then
+            want="sanjtv-$(echo "$CF_ACCOUNT" | cut -c1-6)"
+            echo "No workers.dev address yet; creating $want"
+            curl -sS -X PUT -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+              --data "{\"subdomain\":\"$want\"}" "$api" | jq -c '{success, errors}'
+            sub=$(curl -sS -H "Authorization: Bearer $CF_TOKEN" "$api" | jq -r '.result.subdomain // empty')
+          fi
+          echo "workers.dev address: $sub"
+          echo "SUB=$sub" >> $GITHUB_ENV
       - name: Deploy
         if: env.SKIP != '1'
         working-directory: sync-worker
-        run: npx --yes wrangler@4 deploy 2>&1 | tee deploy.log
+        run: npx --yes wrangler@4 deploy 2>&1 | tee deploy.log; exit ${PIPESTATUS[0]}
       - name: Show address
         if: env.SKIP != '1'
         run: |
-          url=$(grep -oE 'https://sanjtv-sync\.[a-z0-9-]+\.workers\.dev' sync-worker/deploy.log | head -1)
+          url="https://sanjtv-sync.$SUB.workers.dev"
           echo "SYNC_URL=$url"
-          curl -fsS "$url/" && echo
+          for i in 1 2 3 4 5 6; do curl -fsS "$url/" && echo && exit 0; sleep 10; done
+          echo "::warning::not answering yet (new addresses can take a minute)"
