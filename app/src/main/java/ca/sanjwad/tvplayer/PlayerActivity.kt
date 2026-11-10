@@ -247,12 +247,16 @@ class PlayerActivity : ComponentActivity() {
                         return
                     }
                 }
-                // Other live hiccups: quietly reconnect the channel a few times before showing anything.
-                if (liveIndex >= 0 && liveRetries < 3) {
+                // Other live hiccups: quietly reconnect the channel before showing anything. A channel that was
+                // already playing (e.g. a chunk went missing after hours on air) gets up to ~a minute of retries,
+                // and from the third try alternates between the HLS and .ts versions of the stream.
+                val maxLive = if (liveStarted) 8 else 3
+                if (liveIndex >= 0 && liveRetries < maxLive) {
                     liveRetries++
-                    toast("Reconnecting…")
+                    flipLiveFormat = liveStarted && liveRetries >= 3 && liveRetries % 2 == 1
+                    if (liveRetries == 1 || liveRetries == 4) toast("Reconnecting…")
                     val idx = liveIndex
-                    saver.postDelayed({ if (liveIndex == idx) playLive(idx, retry = true) }, 1500L * liveRetries)
+                    saver.postDelayed({ if (liveIndex == idx) playLive(idx, retry = true) }, minOf(1500L * liveRetries, 10_000L))
                     return
                 }
                 var cause: Throwable? = error
@@ -379,8 +383,11 @@ class PlayerActivity : ComponentActivity() {
     /** Channels that wouldn't play as a continuous .ts stream, so they use HLS (.m3u8) instead. */
     private val hlsChannels by lazy { prefs.getStringSet("live_hls_ids", emptySet())!!.toMutableSet() }
 
+    /** Set during a reconnect to try the other format (HLS ↔ .ts) for this one attempt. */
+    private var flipLiveFormat = false
+
     private fun playLive(index: Int, retry: Boolean = false) {
-        if (!retry) { liveRetries = 0; liveStarted = false }
+        if (!retry) { liveRetries = 0; liveStarted = false; flipLiveFormat = false }
         val list = Session.channels
         val client = Session.client
         if (list.isEmpty() || client == null) {
@@ -396,7 +403,8 @@ class PlayerActivity : ComponentActivity() {
             // Live TV as one continuous MPEG-TS stream (what TiVimate uses for Xtream) rather than HLS,
             // which polls a playlist for short chunks and spins whenever the server is slow to post one.
             link.onSuccess {
-                val asTs = client is ca.sanjwad.tvplayer.stalker.XtreamClient && ch.id !in hlsChannels && it.endsWith(".m3u8")
+                val xtreamHls = client is ca.sanjwad.tvplayer.stalker.XtreamClient && it.endsWith(".m3u8")
+                val asTs = xtreamHls && ((ch.id !in hlsChannels) != flipLiveFormat)
                 asHls = false
                 play(if (asTs) it.removeSuffix(".m3u8") + ".ts" else it)
             }
