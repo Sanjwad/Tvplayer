@@ -30,11 +30,33 @@ private val separator = Regex("\\s*[-|:]\\s*")
 private fun groupOf(title: String): String =
     if (separator.containsMatchIn(title)) title.split(separator, limit = 2)[0].trim().uppercase() else "OTHER"
 
+/**
+ * Some providers copy their movie group names into the series section ("NETFLIX | ENGLISH MOVIES"
+ * full of TV shows). In the Series tab, show those as "SERIES". Display only: ids stay the same.
+ */
+private val moviesWord = Regex("\\b(MOVIES|MOVIE|FILMS)\\b", RegexOption.IGNORE_CASE)
+
+/** id → heading to show. A renamed group that clashes with a real one gets a number ("… SERIES 2"). */
+fun groupLabels(section: String, cats: List<Genre>): Map<String, String> {
+    if (section != "series") return cats.associate { it.id to it.title }
+    val taken = cats.map { it.title.uppercase() }.toMutableSet()
+    return cats.associate { c ->
+        if (!moviesWord.containsMatchIn(c.title)) return@associate c.id to c.title
+        val base = moviesWord.replace(c.title) { m -> if (m.value == m.value.uppercase()) "SERIES" else "Series" }
+        var label = base
+        var n = 2
+        while (label.uppercase() in taken) label = "$base ${n++}"
+        taken += label.uppercase()
+        c.id to label
+    }
+}
+
 /** Lets the person hide whole language groups or single categories in one section. */
 @Composable
 fun ManageGroups(section: String, categories: List<Genre>, onDone: () -> Unit) {
     val cats = categories.filter { it.id != "*" }
     val hiddenNow = Library.hidden[section].orEmpty()
+    val labels = groupLabels(section, cats)
     val groups = cats.groupBy { groupOf(it.title) }.toList().sortedBy { it.first }
 
     Column(Modifier.fillMaxSize()) {
@@ -64,7 +86,7 @@ fun ManageGroups(section: String, categories: List<Genre>, onDone: () -> Unit) {
             }
             items(cats, key = { "c_" + it.id }) { g ->
                 val isHidden = g.id in hiddenNow
-                ToggleRow(if (isHidden) "✕" else "✓", g.title, dim = isHidden) {
+                ToggleRow(if (isHidden) "✕" else "✓", labels[g.id] ?: g.title, dim = isHidden) {
                     Library.setHidden(section, listOf(g.id), hide = !isHidden)
                 }
             }

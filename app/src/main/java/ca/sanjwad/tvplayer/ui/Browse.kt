@@ -484,6 +484,7 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                 }
                 val trendRows = s.trending.withIndex().filter { (_, t) -> t.second == null || t.second!!.isNotEmpty() }
                 val cats = s.categories.filter { !Library.isHidden(s.kind, it.id) }
+                val labels = remember(s.kind, s.categories) { groupLabels(s.kind, s.categories) }
                 LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     trendRows.forEachIndexed { pos, (i, t) ->
                         item("trend$i") {
@@ -492,7 +493,7 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                     }
                     itemsIndexed(cats, key = { _, c -> c.id }) { ci, cat ->
                         LaunchedEffect(cat.id) { VodLoader.row(s, cat.id) }
-                        PosterRow(cat.title, s.rowItems[cat.id], setHero, onOpen, onSeeAll = null, onNearEnd = { rowScope.launch { VodLoader.more(s, cat.id) } },
+                        PosterRow(labels[cat.id] ?: cat.title, s.rowItems[cat.id], setHero, onOpen, onSeeAll = null, onNearEnd = { rowScope.launch { VodLoader.more(s, cat.id) } },
                             focusSeeAll = s.returnTo == cat.id, onSeeAllFocused = { s.returnTo = null },
                             onRowFocus = { alignRow(trendRows.size + ci) })
                     }
