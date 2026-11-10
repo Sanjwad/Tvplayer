@@ -6,7 +6,7 @@ jobs:
     steps:
       - name: Look up domains (RDAP; 404 = not registered)
         run: |
-          names="mytv getmytv mytvplayer mytvapp mytvhome mytvcanada trymytv mytvhub"
+          names="besttv getbesttv besttvapp besttvplayer besttvcanada thebesttv"
           url() { case $2 in com) echo "https://rdap.verisign.com/com/v1/domain/$1.com";;
                   app) echo "https://pubapi.registry.google/rdap/domain/$1.app";; ca) echo "https://rdap.ca.fury.ca/rdap/domain/$1.ca";; esac; }
           for n in $names; do
