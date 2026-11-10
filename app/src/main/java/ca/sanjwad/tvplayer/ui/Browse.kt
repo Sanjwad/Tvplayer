@@ -250,6 +250,8 @@ private fun PosterRow(
     focusSeeAll: Boolean = false, onSeeAllFocused: () -> Unit = {},
     /** Any tile in this row got the cursor (used to line the row up with the top). */
     onRowFocus: () -> Unit = {},
+    /** Scrolled near the end of the row: load more titles into it. */
+    onNearEnd: (() -> Unit)? = null,
 ) {
     Column {
         Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
@@ -262,6 +264,10 @@ private fun PosterRow(
               val seeAll = remember { FocusRequester() }
               if (focusSeeAll && onSeeAll != null) LaunchedEffect(Unit) {
                   delay(150); runCatching { seeAll.requestFocus() }; onSeeAllFocused()
+              }
+              if (onNearEnd != null) LaunchedEffect(rowState, list.size) {
+                  androidx.compose.runtime.snapshotFlow { rowState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+                      .collect { last -> if (last >= list.size - 8) onNearEnd() }
               }
               LazyRow(state = rowState, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(list.size) { i -> val item = list[i]
@@ -376,6 +382,23 @@ object VodLoader {
         }
     }
 
+    /** Scrolled near the end of a row: add the category's next page to it. */
+    suspend fun more(s: VodState, categoryId: String) {
+        if (s.rowHasMore[categoryId] != true || !s.rowLoading.add(categoryId)) return
+        try {
+            val next = (s.rowPage[categoryId] ?: 1) + 1
+            val page = withContext(Dispatchers.IO) {
+                runCatching { Session.client?.vodPage(s.type, categoryId, next) }.getOrNull()
+            } ?: return
+            val have = s.rowItems[categoryId].orEmpty()
+            val seen = have.mapTo(HashSet()) { it.id }
+            val added = page.items.filter { seen.add(it.id) }
+            s.rowItems[categoryId] = have + added
+            s.rowPage[categoryId] = next
+            s.rowHasMore[categoryId] = added.isNotEmpty() && page.totalItems > have.size + added.size
+        } finally { s.rowLoading.remove(categoryId) }
+    }
+
     suspend fun row(s: VodState, categoryId: String) {
         if (s.rowItems[categoryId] != null) return
         // A failed request isn't an empty row: keep it "Loading…" and keep trying while it's on screen
@@ -388,8 +411,9 @@ object VodLoader {
             val list = page?.items
             if (list != null) {
                 if (s.rowItems[categoryId] == null) {
-                    s.rowItems[categoryId] = list.take(40)
-                    s.rowHasMore[categoryId] = list.size > 40 || page.totalItems > minOf(list.size, 40)
+                    s.rowItems[categoryId] = list
+                    s.rowPage[categoryId] = 1
+                    s.rowHasMore[categoryId] = list.isNotEmpty() && page.totalItems > list.size
                 }
                 break
             }
@@ -468,7 +492,7 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                     }
                     itemsIndexed(cats, key = { _, c -> c.id }) { ci, cat ->
                         LaunchedEffect(cat.id) { VodLoader.row(s, cat.id) }
-                        PosterRow(cat.title, s.rowItems[cat.id], setHero, onOpen, onSeeAll = if (s.rowHasMore[cat.id] == true) ({ openGrid(cat.id) }) else null,
+                        PosterRow(cat.title, s.rowItems[cat.id], setHero, onOpen, onSeeAll = null, onNearEnd = { rowScope.launch { VodLoader.more(s, cat.id) } },
                             focusSeeAll = s.returnTo == cat.id, onSeeAllFocused = { s.returnTo = null },
                             onRowFocus = { alignRow(trendRows.size + ci) })
                     }

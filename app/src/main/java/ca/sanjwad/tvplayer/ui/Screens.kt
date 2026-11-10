@@ -126,6 +126,9 @@ class VodState(val kind: String) {
     val rowItems = androidx.compose.runtime.mutableStateMapOf<String, List<VodItem>>()
     /** Categories with more titles than their row shows (so the row gets a "See all"). */
     val rowHasMore = androidx.compose.runtime.mutableStateMapOf<String, Boolean>()
+    /** Last page loaded into each row (rows load more as you scroll right). */
+    val rowPage = mutableMapOf<String, Int>()
+    val rowLoading = mutableSetOf<String>()
     fun reset() {
         query = ""; results = emptyList(); searching = false; gridMode = false; rowItems.clear(); rowHasMore.clear(); trending = emptyList()
         categories = emptyList(); category = null; items = emptyList(); page = 0; total = 0
@@ -1031,14 +1034,17 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
     }
 
     val label = kindLabel(s.kind)
-    val side = listOf(Genre(SEARCH_ID, "🔍  Search")) + s.categories.filter { !Library.isHidden(s.kind, it.id) }
-    Row(Modifier.fillMaxSize()) {
-        SideList(side, s.category, 260) { g ->
-            if (g.id != SEARCH_ID) { s.query = ""; s.results = emptyList() }
-            if (s.category != g.id) { s.category = g.id; loadPage(true) }
+    // "See all": just the category's titles, full width, with its name on top (Back returns to the rows).
+    val catTitle = s.categories.firstOrNull { it.id == s.category }?.title.orEmpty()
+    Column(Modifier.fillMaxSize()) {
+        if (catTitle.isNotBlank()) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(catTitle, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                if (s.total > 0) Text("   ${s.total} titles", fontSize = 14.sp, color = TextDim)
+            }
+            Spacer(Modifier.height(12.dp))
         }
-        Spacer(Modifier.width(16.dp))
-        Box(Modifier.weight(1f).fillMaxHeight()) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
             val err = s.error
             when (s.category) {
                 SEARCH_ID -> Column(Modifier.fillMaxSize()) {
