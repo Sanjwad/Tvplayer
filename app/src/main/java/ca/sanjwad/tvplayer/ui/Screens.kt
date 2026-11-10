@@ -122,6 +122,10 @@ class VodState(val kind: String) {
     val catsLock = kotlinx.coroutines.sync.Mutex()
     val trendLock = kotlinx.coroutines.sync.Mutex()
     /** TMDB-driven rows: title → matched titles (null while loading). */
+    /** "Recently added" row (null while loading). */
+    var recent by mutableStateOf<List<VodItem>?>(null)
+    /** Hidden groups the "Recently added" row was made with; changing them remakes it. */
+    var recentHidden: Set<String>? = null
     var trending by mutableStateOf<List<Pair<String, List<VodItem>?>>>(emptyList())
     val rowItems = androidx.compose.runtime.mutableStateMapOf<String, List<VodItem>>()
     /** Categories with more titles than their row shows (so the row gets a "See all"). */

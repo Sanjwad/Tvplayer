@@ -504,6 +504,9 @@ class StalkerClient(
         } finally { background.set(false) }
     }
 
+    /** The catalogue above is already newest first. */
+    override fun recentlyAdded(type: String, hidden: Set<String>): List<VodItem> = catalogue(type).take(100)
+
     override fun seasons(type: String, item: VodItem): List<Season> {
         val rows = allPages(
             mapOf("type" to type, "action" to "get_ordered_list", "movie_id" to item.id,

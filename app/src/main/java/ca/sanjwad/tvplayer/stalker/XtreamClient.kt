@@ -547,6 +547,30 @@ class XtreamClient(
 
     override fun catalogue(type: String): List<VodItem> = fullList(type, "*")
 
+    /** Sorted by the upload time the server keeps ("added"; for shows "last_modified", so new episodes count too). */
+    override fun recentlyAdded(type: String, hidden: Set<String>): List<VodItem> {
+        val series = type == "series"
+        val file = cacheFile("recent2_$type")
+        // Newest 2,000 as (id, category), so hiding a group later still leaves plenty to show.
+        val newest = readCats(file, maxAgeMs = 3 * HOUR) ?: run {
+            val idField = if (series) "series_id" else "stream_id"
+            val timeField = if (series) "last_modified" else "added"
+            streamObjects("action" to (if (series) "get_series" else "get_vod_streams"),
+                fields = setOf(idField, timeField, "category_id"))
+                .mapNotNull { m ->
+                    val id = m[idField].orEmpty().ifEmpty { return@mapNotNull null }
+                    val t = m[timeField]?.toLongOrNull() ?: return@mapNotNull null
+                    Triple(id, m["category_id"].orEmpty(), t)
+                }
+                .sortedByDescending { it.third }.take(2000).map { Genre(it.first, it.second) }
+                .also { writeCats(file, it) }
+        }
+        val ids = newest.filter { it.title !in hidden }.take(100).map { it.id }
+        if (ids.isEmpty()) return emptyList()
+        val byId = fullList(type, "*").associateBy { it.id }
+        return ids.mapNotNull { byId[it] }
+    }
+
     override fun search(type: String, query: String): List<VodItem> {
         val words = query.lowercase().split(" ").filter { it.isNotBlank() }
         if (words.isEmpty()) return emptyList()

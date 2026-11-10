@@ -365,6 +365,18 @@ object VodLoader {
         r.getOrNull()?.let { (type, cats) -> Library.noteCategories(s.kind, cats); s.type = type; Session.vodTypes[s.kind] = type; s.categories = cats; s.catsLoaded = true }
     }
 
+    /** Newest uploads for this tab. */
+    suspend fun recent(s: VodState) {
+        val hidden = Library.hidden[s.kind].orEmpty()
+        if (!s.catsLoaded || (s.recent != null && s.recentHidden == hidden)) return
+        s.recentHidden = hidden
+        val list = withContext(Dispatchers.IO) {
+            runCatching { Session.client?.recentlyAdded(s.type, hidden) }.getOrNull()
+        }.orEmpty()
+        // A tab built from the movie section (some Stalker portals) only keeps its own kind.
+        s.recent = list.filter { if (s.kind == "series") it.isSeries else !it.isSeries }
+    }
+
     /** Trending rows from TMDB, matched to this provider's catalogue. */
     suspend fun trending(s: VodState) = s.trendLock.withLock {
         val tmdb = Session.tmdb ?: return@withLock
@@ -458,6 +470,7 @@ object VodLoader {
         if (!s.catsLoaded) return
         // The rows you see first, then the slow trending rows.
         s.categories.filter { !Library.isHidden(s.kind, it.id) }.take(4).forEach { row(s, it.id) }
+        recent(s)
         trending(s)
     }
 }
@@ -473,6 +486,7 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
     }
     // Trending rows from TMDB, matched to this provider's catalogue.
     LaunchedEffect(s.kind, s.catsLoaded) { VodLoader.trending(s) }
+    LaunchedEffect(s.kind, s.catsLoaded, Library.hidden[s.kind]) { VodLoader.recent(s) }
     val (hero, setHero) = rememberHero()
     val label = kindLabel(s.kind)
     // Show the first title straight away so the panel is filled before you move into the rows.
@@ -521,6 +535,11 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                             PosterRow(t.first, t.second, setHero, onOpen, onRowFocus = { alignRow(pos) })
                         }
                     }
+                    val recent = s.recent
+                    val recentShown = recent == null || recent.isNotEmpty()
+                    if (recentShown) item("recent") {
+                        PosterRow("🆕  Recently added", recent, setHero, onOpen, onRowFocus = { alignRow(trendRows.size) })
+                    }
                     itemsIndexed(rows, key = { _, r -> r.second.first().id }) { ci, (title, members) ->
                         // One category: its own row. Several with the same heading: one row that takes a page from each in turn.
                         val key = if (members.size == 1) members[0].id else VodLoader.mergedKey(members)
@@ -528,7 +547,7 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                         PosterRow(title, s.rowItems[key], setHero, onOpen, onSeeAll = null,
                             onNearEnd = { rowScope.launch { if (members.size == 1) VodLoader.more(s, key) else VodLoader.mergedMore(s, key, members.map { it.id }) } },
                             focusSeeAll = s.returnTo == key, onSeeAllFocused = { s.returnTo = null },
-                            onRowFocus = { alignRow(trendRows.size + ci) })
+                            onRowFocus = { alignRow(trendRows.size + (if (recentShown) 1 else 0) + ci) })
                     }
                 }
             }

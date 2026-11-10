@@ -44,6 +44,9 @@ interface IptvSource {
     /** Every title in a section, used to match trending lists against what this provider has. */
     fun catalogue(type: String): List<VodItem>
 
+    /** Newest uploads in a section, newest first, leaving out [hidden] categories (empty when the provider doesn't say). */
+    fun recentlyAdded(type: String, hidden: Set<String>): List<VodItem> = emptyList()
+
     /** Extra details for a movie (description, year, rating) when the list didn't include them. */
     fun movieInfo(item: VodItem): VodItem = item
 
