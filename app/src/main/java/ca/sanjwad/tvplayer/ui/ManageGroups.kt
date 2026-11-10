@@ -38,17 +38,22 @@ private fun groupOf(title: String): String =
 private val moviesWord = Regex("\\b(MOVIES|MOVIE|FILMS)\\b", RegexOption.IGNORE_CASE)
 private val seriesWord = Regex("\\b(SERIES|TV SHOWS)\\b", RegexOption.IGNORE_CASE)
 
-/** id → heading to show. A renamed group that clashes with a real one gets a number ("… SERIES 2"). */
-fun groupLabels(section: String, cats: List<Genre>): Map<String, String> {
+/** The tab's own word in place of the wrong one ("… ENGLISH MOVIES" → "… ENGLISH SERIES" in Series). */
+private fun baseLabel(section: String, title: String): String {
     val (wrong, right) = when (section) {
         "series" -> moviesWord to "Series"
         "movies" -> seriesWord to "Movies"
-        else -> return cats.associate { it.id to it.title }
+        else -> return title
     }
+    return wrong.replace(title) { m -> if (m.value == m.value.uppercase()) right.uppercase() else right }
+}
+
+/** id → heading to show in Edit groups. A renamed group that clashes with a real one gets a number ("… SERIES 2"). */
+fun groupLabels(section: String, cats: List<Genre>): Map<String, String> {
     val taken = cats.map { it.title.uppercase() }.toMutableSet()
     return cats.associate { c ->
-        if (!wrong.containsMatchIn(c.title)) return@associate c.id to c.title
-        val base = wrong.replace(c.title) { m -> if (m.value == m.value.uppercase()) right.uppercase() else right }
+        val base = baseLabel(section, c.title)
+        if (base == c.title) return@associate c.id to c.title
         var label = base
         var n = 2
         while (label.uppercase() in taken) label = "$base ${n++}"
@@ -56,6 +61,10 @@ fun groupLabels(section: String, cats: List<Genre>): Map<String, String> {
         c.id to label
     }
 }
+
+/** Categories that end up with the same heading share one row: heading → its categories, in list order. */
+fun rowGroups(section: String, cats: List<Genre>): List<Pair<String, List<Genre>>> =
+    cats.groupBy { baseLabel(section, it.title).trim().uppercase() }.values.map { baseLabel(section, it.first().title) to it }
 
 /** Lets the person hide whole language groups or single categories in one section. */
 @Composable

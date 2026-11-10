@@ -399,6 +399,36 @@ object VodLoader {
         } finally { s.rowLoading.remove(categoryId) }
     }
 
+    fun mergedKey(members: List<ca.sanjwad.tvplayer.stalker.Genre>) = "merged:" + members.joinToString(",") { it.id }
+
+    /** First page of each category, one after the other, in one row. */
+    suspend fun mergedRow(s: VodState, key: String, ids: List<String>) {
+        if (s.rowItems[key] != null) return
+        ids.forEach { row(s, it) }
+        val seen = HashSet<String>()
+        s.rowItems[key] = ids.flatMap { s.rowItems[it].orEmpty() }.filter { seen.add(it.id) }
+        s.rowHasMore[key] = ids.any { s.rowHasMore[it] == true }
+    }
+
+    /** Scrolled near the end of a merged row: the next page from the next category that has more, added at the end. */
+    suspend fun mergedMore(s: VodState, key: String, ids: List<String>) {
+        if (s.rowHasMore[key] != true || !s.rowLoading.add(key)) return
+        try {
+            val turn = s.rowPage[key] ?: 0
+            val id = (ids.indices).map { ids[(turn + it) % ids.size] }.firstOrNull { s.rowHasMore[it] == true } ?: run {
+                s.rowHasMore[key] = false; return
+            }
+            val before = s.rowItems[id].orEmpty().size
+            more(s, id)
+            val added = s.rowItems[id].orEmpty().drop(before)
+            val have = s.rowItems[key].orEmpty()
+            val seen = have.mapTo(HashSet()) { it.id }
+            s.rowItems[key] = have + added.filter { seen.add(it.id) }
+            s.rowPage[key] = ids.indexOf(id) + 1
+            s.rowHasMore[key] = ids.any { s.rowHasMore[it] == true }
+        } finally { s.rowLoading.remove(key) }
+    }
+
     suspend fun row(s: VodState, categoryId: String) {
         if (s.rowItems[categoryId] != null) return
         // A failed request isn't an empty row: keep it "Loading…" and keep trying while it's on screen
@@ -484,17 +514,20 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                 }
                 val trendRows = s.trending.withIndex().filter { (_, t) -> t.second == null || t.second!!.isNotEmpty() }
                 val cats = s.categories.filter { !Library.isHidden(s.kind, it.id) }
-                val labels = remember(s.kind, s.categories) { groupLabels(s.kind, s.categories) }
+                val rows = remember(s.kind, cats) { rowGroups(s.kind, cats) }
                 LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     trendRows.forEachIndexed { pos, (i, t) ->
                         item("trend$i") {
                             PosterRow(t.first, t.second, setHero, onOpen, onRowFocus = { alignRow(pos) })
                         }
                     }
-                    itemsIndexed(cats, key = { _, c -> c.id }) { ci, cat ->
-                        LaunchedEffect(cat.id) { VodLoader.row(s, cat.id) }
-                        PosterRow(labels[cat.id] ?: cat.title, s.rowItems[cat.id], setHero, onOpen, onSeeAll = null, onNearEnd = { rowScope.launch { VodLoader.more(s, cat.id) } },
-                            focusSeeAll = s.returnTo == cat.id, onSeeAllFocused = { s.returnTo = null },
+                    itemsIndexed(rows, key = { _, r -> r.second.first().id }) { ci, (title, members) ->
+                        // One category: its own row. Several with the same heading: one row that takes a page from each in turn.
+                        val key = if (members.size == 1) members[0].id else VodLoader.mergedKey(members)
+                        LaunchedEffect(key) { if (members.size == 1) VodLoader.row(s, key) else VodLoader.mergedRow(s, key, members.map { it.id }) }
+                        PosterRow(title, s.rowItems[key], setHero, onOpen, onSeeAll = null,
+                            onNearEnd = { rowScope.launch { if (members.size == 1) VodLoader.more(s, key) else VodLoader.mergedMore(s, key, members.map { it.id }) } },
+                            focusSeeAll = s.returnTo == key, onSeeAllFocused = { s.returnTo = null },
                             onRowFocus = { alignRow(trendRows.size + ci) })
                     }
                 }
