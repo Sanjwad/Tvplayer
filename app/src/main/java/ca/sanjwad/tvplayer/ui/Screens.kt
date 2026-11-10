@@ -124,8 +124,10 @@ class VodState(val kind: String) {
     /** TMDB-driven rows: title → matched titles (null while loading). */
     var trending by mutableStateOf<List<Pair<String, List<VodItem>?>>>(emptyList())
     val rowItems = androidx.compose.runtime.mutableStateMapOf<String, List<VodItem>>()
+    /** Categories with more titles than their row shows (so the row gets a "See all"). */
+    val rowHasMore = androidx.compose.runtime.mutableStateMapOf<String, Boolean>()
     fun reset() {
-        query = ""; results = emptyList(); searching = false; gridMode = false; rowItems.clear(); trending = emptyList()
+        query = ""; results = emptyList(); searching = false; gridMode = false; rowItems.clear(); rowHasMore.clear(); trending = emptyList()
         categories = emptyList(); category = null; items = emptyList(); page = 0; total = 0
         error = null; catsLoaded = false; job?.cancel(); job = null; loading = false
     }
