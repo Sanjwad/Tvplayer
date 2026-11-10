@@ -86,15 +86,22 @@ fun HomeScreen(
         if (!menuFocused) runCatching { fr.requestFocus() } else askExit = true
     }
 
+    // The menu folds down to a slim strip of icons while you browse, giving the posters the room,
+    // and opens again when you move left onto it (or press Back), like TiVimate and Netflix.
+    val menuWidth by androidx.compose.animation.core.animateDpAsState(if (menuFocused) 210.dp else 72.dp, label = "menu")
     Box(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxSize()) {
             Column(
-                Modifier.width(210.dp).fillMaxHeight().background(Rail)
-                    .padding(horizontal = 14.dp, vertical = 24.dp)
+                Modifier.width(menuWidth).fillMaxHeight().background(Rail)
+                    .padding(horizontal = if (menuFocused) 14.dp else 10.dp, vertical = 24.dp)
                     .onFocusChanged { menuFocused = it.hasFocus },
             ) {
-                Logo(22.sp, Modifier.padding(start = 6.dp))
-                Spacer(Modifier.height(36.dp))
+                if (menuFocused) Logo(22.sp, Modifier.padding(start = 6.dp))
+                else androidx.compose.foundation.Image(
+                    androidx.compose.ui.res.painterResource(ca.sanjwad.tvplayer.R.drawable.ic_launcher), contentDescription = "Sanj TV",
+                    modifier = Modifier.padding(start = 6.dp).size(34.dp),
+                )
+                Spacer(Modifier.height(if (menuFocused) 36.dp else 34.dp))
                 entries.forEach { (label, i, icon) ->
                     FocusBox(
                         onClick = { if (i == 4) onSettings() else onSection(i) },
@@ -109,8 +116,10 @@ fun HomeScreen(
                                 tint = when { i == section -> Accent; i == 3 -> LogoYellow; else -> Color(0xFFC9D1DE) },
                                 modifier = Modifier.size(20.dp),
                             )
-                            Spacer(Modifier.width(14.dp))
-                            Text(label, fontSize = 17.sp, color = if (i == 3) LogoYellow else Color.White)
+                            if (menuFocused) {
+                                Spacer(Modifier.width(14.dp))
+                                Text(label, fontSize = 17.sp, color = if (i == 3) LogoYellow else Color.White, maxLines = 1, softWrap = false)
+                            }
                         }
                     }
                 }
