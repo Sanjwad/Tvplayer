@@ -382,10 +382,17 @@ object VodLoader {
         // (this stops when the row scrolls away, and starts again when it comes back).
         var attempt = 0
         while (s.rowItems[categoryId] == null) {
-            val list = withContext(Dispatchers.IO) {
-                runCatching { Session.client?.vodPage(s.type, categoryId, 1)?.items }.getOrNull()
+            val page = withContext(Dispatchers.IO) {
+                runCatching { Session.client?.vodPage(s.type, categoryId, 1) }.getOrNull()
             }
-            if (list != null) { if (s.rowItems[categoryId] == null) s.rowItems[categoryId] = list.take(40); break }
+            val list = page?.items
+            if (list != null) {
+                if (s.rowItems[categoryId] == null) {
+                    s.rowItems[categoryId] = list.take(40)
+                    s.rowHasMore[categoryId] = list.size > 40 || page.totalItems > minOf(list.size, 40)
+                }
+                break
+            }
             attempt++
             delay(minOf(2_000L * attempt, 15_000L))
         }
@@ -461,7 +468,7 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                     }
                     itemsIndexed(cats, key = { _, c -> c.id }) { ci, cat ->
                         LaunchedEffect(cat.id) { VodLoader.row(s, cat.id) }
-                        PosterRow(cat.title, s.rowItems[cat.id], setHero, onOpen, onSeeAll = { openGrid(cat.id) },
+                        PosterRow(cat.title, s.rowItems[cat.id], setHero, onOpen, onSeeAll = if (s.rowHasMore[cat.id] == true) ({ openGrid(cat.id) }) else null,
                             focusSeeAll = s.returnTo == cat.id, onSeeAllFocused = { s.returnTo = null },
                             onRowFocus = { alignRow(trendRows.size + ci) })
                     }
