@@ -1035,7 +1035,7 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
 
     val label = kindLabel(s.kind)
     // "See all": just the category's titles, full width, with its name on top (Back returns to the rows).
-    val catTitle = s.categories.firstOrNull { it.id == s.category }?.title.orEmpty()
+    val catTitle = s.categories.firstOrNull { it.id == s.category }?.let { groupLabels(s.kind, s.categories)[it.id] ?: it.title }.orEmpty()
     Column(Modifier.fillMaxSize()) {
         if (catTitle.isNotBlank()) {
             Row(verticalAlignment = Alignment.Bottom) {
