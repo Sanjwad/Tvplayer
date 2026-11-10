@@ -31,18 +31,24 @@ private fun groupOf(title: String): String =
     if (separator.containsMatchIn(title)) title.split(separator, limit = 2)[0].trim().uppercase() else "OTHER"
 
 /**
- * Some providers copy their movie group names into the series section ("NETFLIX | ENGLISH MOVIES"
- * full of TV shows). In the Series tab, show those as "SERIES". Display only: ids stay the same.
+ * Some providers mix up their group names: "NETFLIX | ENGLISH MOVIES" full of TV shows in the
+ * series section, "APPLE TV+ | ENGLISH SERIES" full of films in the movie section. Each tab shows
+ * its own word instead. Display only: ids, hidden groups and sync stay the same.
  */
 private val moviesWord = Regex("\\b(MOVIES|MOVIE|FILMS)\\b", RegexOption.IGNORE_CASE)
+private val seriesWord = Regex("\\b(SERIES|TV SHOWS)\\b", RegexOption.IGNORE_CASE)
 
 /** id → heading to show. A renamed group that clashes with a real one gets a number ("… SERIES 2"). */
 fun groupLabels(section: String, cats: List<Genre>): Map<String, String> {
-    if (section != "series") return cats.associate { it.id to it.title }
+    val (wrong, right) = when (section) {
+        "series" -> moviesWord to "Series"
+        "movies" -> seriesWord to "Movies"
+        else -> return cats.associate { it.id to it.title }
+    }
     val taken = cats.map { it.title.uppercase() }.toMutableSet()
     return cats.associate { c ->
-        if (!moviesWord.containsMatchIn(c.title)) return@associate c.id to c.title
-        val base = moviesWord.replace(c.title) { m -> if (m.value == m.value.uppercase()) "SERIES" else "Series" }
+        if (!wrong.containsMatchIn(c.title)) return@associate c.id to c.title
+        val base = wrong.replace(c.title) { m -> if (m.value == m.value.uppercase()) right.uppercase() else right }
         var label = base
         var n = 2
         while (label.uppercase() in taken) label = "$base ${n++}"
