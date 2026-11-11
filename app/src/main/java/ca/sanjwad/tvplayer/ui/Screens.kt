@@ -109,6 +109,12 @@ class VodState(val kind: String) {
     var focusRow: String? = null
     var focusIndex = -1
     var restoreFocus = false
+    /** Bumped when Movies/TV Shows is picked in the menu: the page starts again from the top. */
+    var resetRows by mutableIntStateOf(0)
+    fun backToTop() {
+        rowsIndex = 0; rowsOffset = 0; rowScroll.clear(); restoreFocus = false; returnTo = null
+        gridMode = false; resetRows++
+    }
     var categories by mutableStateOf<List<Genre>>(emptyList())
     var category by mutableStateOf<String?>(null)
     var items by mutableStateOf<List<VodItem>>(emptyList())
@@ -210,7 +216,8 @@ fun App() {
                 else -> HomeScreen(
                     section = section, onSection = {
                         // Picking Movies/TV Shows again from inside "See all" goes back to its main page, like Back.
-                        if (it == section) when (it) { 1 -> movies.gridMode = false; 2 -> series.gridMode = false }
+                        // Picking Movies or TV Shows in the menu always starts at the top (Trending), first title first.
+                        when (it) { 1 -> movies.backToTop(); 2 -> series.backToTop() }
                         section = it
                     }, live = live, movies = movies, series = series,
                     onOpen = { type, item, seasonId -> stack.add(DetailReq(type, item, seasonId)) },

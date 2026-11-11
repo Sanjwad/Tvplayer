@@ -380,7 +380,7 @@ fun VodTab(s: VodState, onOpen: (VodItem) -> Unit) {
         BackHandler { s.gridMode = false }
         VodScreen(s, onOpen)
     } else {
-        VodRows(s, onOpen)
+        androidx.compose.runtime.key(s.resetRows) { VodRows(s, onOpen) }
     }
 }
 
