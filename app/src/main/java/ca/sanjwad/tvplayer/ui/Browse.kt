@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 
 package ca.sanjwad.tvplayer.ui
 
@@ -40,6 +40,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -139,7 +141,19 @@ fun HomeScreen(
                     }
                 }
             }
-            Box(Modifier.weight(1f).fillMaxHeight().padding(start = 20.dp, end = 20.dp, top = 16.dp)) {
+            // Leaving the page: Left always lands on this page's own menu entry (not whichever entry
+            // happens to be level with the cursor), and Up/Down at the top or bottom go nowhere.
+            Box(Modifier.weight(1f).fillMaxHeight().padding(start = 20.dp, end = 20.dp, top = 16.dp)
+                .focusProperties {
+                    exit = { dir ->
+                        when (dir) {
+                            androidx.compose.ui.focus.FocusDirection.Left -> fr
+                            androidx.compose.ui.focus.FocusDirection.Up, androidx.compose.ui.focus.FocusDirection.Down -> FocusRequester.Cancel
+                            else -> FocusRequester.Default
+                        }
+                    }
+                }
+                .focusGroup()) {
                 when (section) {
                     0 -> LiveScreen(live)
                     1 -> VodTab(movies) { onOpen(movies.type, it, null) }
