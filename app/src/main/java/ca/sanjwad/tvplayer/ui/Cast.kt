@@ -206,6 +206,7 @@ private fun PersonPage(personId: Int, onPick: (type: String, item: VodItem) -> U
     var person by remember { mutableStateOf<TmdbClient.Person?>(null) }
     var owned by remember { mutableStateOf<Map<TmdbClient.Credit, Pair<String, VodItem>>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    // The cursor starts on the biography and stays there; the titles below are only a press of Down away.
     val fr = remember { FocusRequester() }
     LaunchedEffect(personId) {
         val tmdb = Session.tmdb ?: return@LaunchedEffect
@@ -249,7 +250,7 @@ private fun PersonPage(personId: Int, onPick: (type: String, item: VodItem) -> U
                     Spacer(Modifier.height(10.dp))
                     // Selectable, so Up from the rows below comes back here; OK shows the whole biography.
                     var full by remember { mutableStateOf(false) }
-                    FocusBox(onClick = { full = !full }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+                    FocusBox(onClick = { full = !full }, modifier = Modifier.fillMaxWidth().focusRequester(fr), shape = RoundedCornerShape(8.dp)) {
                         Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
                             Text(p.bio.ifBlank { "No biography available." }, fontSize = 14.sp,
                                 color = if (p.bio.isBlank()) TextDim else Color(0xFFD5DAE1),
@@ -266,13 +267,13 @@ private fun PersonPage(personId: Int, onPick: (type: String, item: VodItem) -> U
                 fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
             Spacer(Modifier.height(8.dp))
             when {
-                have == null -> Text("Checking your library…", color = TextDim, fontSize = 14.sp, modifier = Modifier.focusRequester(fr))
+                have == null -> Text("Checking your library…", color = TextDim, fontSize = 14.sp)
                 have.isEmpty() -> Text("None of their films or shows are on your service.", color = TextDim, fontSize = 14.sp)
                 else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     itemsIndexed(have.entries.toList()) { i, (credit, hit) ->
                         Column(Modifier.width(112.dp)) {
                             PosterTile(hit.second, badge = if (credit.isSeries) "TV" else null,
-                                modifier = if (i == 0) Modifier.focusRequester(fr) else Modifier) { onPick(hit.first, hit.second) }
+                                modifier = Modifier) { onPick(hit.first, hit.second) }
                             if (credit.role.isNotBlank()) Text(credit.role, color = TextDim, fontSize = 11.sp, maxLines = 1,
                                 overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 4.dp))
                         }
@@ -287,8 +288,7 @@ private fun PersonPage(personId: Int, onPick: (type: String, item: VodItem) -> U
             Spacer(Modifier.height(8.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 itemsIndexed(others) { i, c ->
-                    FocusBox(onClick = {}, modifier = Modifier.width(112.dp)
-                        .then(if (have != null && have.isEmpty() && i == 0) Modifier.focusRequester(fr) else Modifier),
+                    FocusBox(onClick = {}, modifier = Modifier.width(112.dp),
                         shape = RoundedCornerShape(8.dp)) {
                         Column(Modifier.padding(4.dp)) {
                             Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(6.dp)).background(Bg)) {
@@ -306,8 +306,7 @@ private fun PersonPage(personId: Int, onPick: (type: String, item: VodItem) -> U
             }
         }
     }
-    // Library check finished: move focus to the first title you can actually watch.
-    LaunchedEffect(have) { if (have != null) { delay(150); runCatching { fr.requestFocus() } } }
+
 }
 
 /** Shown over a paused movie or episode: what you're watching, Resume, and Cast. */
