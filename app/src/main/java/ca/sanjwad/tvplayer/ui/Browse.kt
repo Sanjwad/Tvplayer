@@ -1,4 +1,9 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package ca.sanjwad.tvplayer.ui
+
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.runtime.CompositionLocalProvider
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -522,37 +527,56 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
             else -> {
                 val rowScope = rememberCoroutineScope()
                 // Moving between rows lines the row with the cursor up at the top, so it's always shown whole.
+                // Only this decides where the list sits: the automatic "keep the cursor in view" scrolling
+                // is switched off for the up/down list (below), because it fought with this and made the
+                // rows bob up and down while moving across a row.
+                var alignJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+                var alignedTo by remember { mutableStateOf(-1) }
                 fun alignRow(index: Int) {
-                    if (listState.firstVisibleItemIndex == index && listState.firstVisibleItemScrollOffset == 0) return
-                    rowScope.launch { delay(30); listState.animateScrollToItem(index) }
+                    if (alignedTo == index && listState.firstVisibleItemIndex == index && listState.firstVisibleItemScrollOffset == 0) return
+                    alignedTo = index
+                    alignJob?.cancel()
+                    alignJob = rowScope.launch { delay(30); listState.animateScrollToItem(index) }
                 }
+                val rowSpec = LocalBringIntoViewSpec.current
                 val trendRows = s.trending.withIndex().filter { (_, t) -> t.second == null || t.second!!.isNotEmpty() }
                 val cats = s.categories.filter { !Library.isHidden(s.kind, it.id) }
                 val rows = remember(s.kind, cats) { rowGroups(s.kind, cats) }
+                CompositionLocalProvider(LocalBringIntoViewSpec provides NoAutoScroll) {
                 LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     trendRows.forEachIndexed { pos, (i, t) ->
                         item("trend$i") {
-                            PosterRow(t.first, t.second, setHero, onOpen, onRowFocus = { alignRow(pos) })
+                            CompositionLocalProvider(LocalBringIntoViewSpec provides rowSpec) {
+                            PosterRow(t.first, t.second, setHero, onOpen, onRowFocus = { alignRow(pos) }) }
                         }
                     }
                     val recent = s.recent
                     val recentShown = recent == null || recent.isNotEmpty()
                     if (recentShown) item("recent") {
-                        PosterRow("🆕  Recently added", recent, setHero, onOpen, onRowFocus = { alignRow(trendRows.size) })
+                        CompositionLocalProvider(LocalBringIntoViewSpec provides rowSpec) {
+                        PosterRow("🆕  Recently added", recent, setHero, onOpen, onRowFocus = { alignRow(trendRows.size) }) }
                     }
                     itemsIndexed(rows, key = { _, r -> r.second.first().id }) { ci, (title, members) ->
                         // One category: its own row. Several with the same heading: one row that takes a page from each in turn.
                         val key = if (members.size == 1) members[0].id else VodLoader.mergedKey(members)
                         LaunchedEffect(key) { if (members.size == 1) VodLoader.row(s, key) else VodLoader.mergedRow(s, key, members.map { it.id }) }
+                        CompositionLocalProvider(LocalBringIntoViewSpec provides rowSpec) {
                         PosterRow(title, s.rowItems[key], setHero, onOpen, onSeeAll = null,
                             onNearEnd = { rowScope.launch { if (members.size == 1) VodLoader.more(s, key) else VodLoader.mergedMore(s, key, members.map { it.id }) } },
                             focusSeeAll = s.returnTo == key, onSeeAllFocused = { s.returnTo = null },
-                            onRowFocus = { alignRow(trendRows.size + (if (recentShown) 1 else 0) + ci) })
+                            onRowFocus = { alignRow(trendRows.size + (if (recentShown) 1 else 0) + ci) }) }
                     }
+                }
                 }
             }
         }
     }
+}
+
+/** Tells a scrolling list not to move by itself when something inside it gets the cursor. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private val NoAutoScroll = object : androidx.compose.foundation.gestures.BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = 0f
 }
 
 // ---------------- search everything ----------------
