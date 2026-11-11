@@ -41,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
@@ -578,18 +579,34 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                 // rows bob up and down while moving across a row.
                 var alignJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
                 var alignedTo by remember { mutableStateOf(-1) }
+                // Holding Up/Down: the list jumps row by row (no sliding), at a steady pace the screen can
+                // keep up with, so it runs smoothly to the top or bottom instead of getting tangled.
+                val held = remember { longArrayOf(0L, 0L) } // [0] = 1 while a key is held, [1] = time of last move
                 fun alignRow(index: Int) {
                     if (alignedTo == index && listState.firstVisibleItemIndex == index && listState.firstVisibleItemScrollOffset == 0) return
                     alignedTo = index
                     alignJob?.cancel()
-                    alignJob = rowScope.launch { delay(30); listState.animateScrollToItem(index) }
+                    alignJob = if (held[0] == 1L) rowScope.launch { listState.scrollToItem(index) }
+                        else rowScope.launch { delay(30); listState.animateScrollToItem(index) }
                 }
                 val rowSpec = LocalBringIntoViewSpec.current
                 val trendRows = s.trending.withIndex().filter { (_, t) -> t.second == null || t.second!!.isNotEmpty() }
                 val cats = s.categories.filter { !Library.isHidden(s.kind, it.id) }
                 val rows = remember(s.kind, cats) { rowGroups(s.kind, cats) }
                 CompositionLocalProvider(LocalBringIntoViewSpec provides NoAutoScroll) {
-                LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.onPreviewKeyEvent { e ->
+                        val k = e.nativeKeyEvent
+                        if (k.keyCode != android.view.KeyEvent.KEYCODE_DPAD_UP && k.keyCode != android.view.KeyEvent.KEYCODE_DPAD_DOWN) return@onPreviewKeyEvent false
+                        if (k.action == android.view.KeyEvent.ACTION_UP) { held[0] = 0L; return@onPreviewKeyEvent false }
+                        if (k.repeatCount == 0) { held[0] = 0L; held[1] = android.os.SystemClock.uptimeMillis(); return@onPreviewKeyEvent false }
+                        held[0] = 1L
+                        val now = android.os.SystemClock.uptimeMillis()
+                        // Swallow repeats that come faster than the rows can be laid out.
+                        if (now - held[1] < 120) return@onPreviewKeyEvent true
+                        held[1] = now
+                        false
+                    }) {
                     trendRows.forEachIndexed { pos, (i, t) ->
                         item("trend$i") {
                             CompositionLocalProvider(LocalBringIntoViewSpec provides rowSpec) {
