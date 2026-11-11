@@ -18,6 +18,9 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -57,6 +60,9 @@ fun GuideGrid(channels: List<Channel>, onCatchup: ((Channel, Programme) -> Unit)
         while (true) { value = Session.client?.guideStatus.orEmpty(); delay(2000) }
     }
     val windowEnd = windowStart + SPAN
+    // Moving past either edge of the grid scrolls time by an hour (like TiVimate) and the cursor lands
+    // on the programme at the right time on the same channel.
+    var focusAt by remember { mutableStateOf<Pair<String, Long>?>(null) }
 
     Column(Modifier.fillMaxSize()) {
         // Details of the highlighted programme, like TiVimate's top panel.
@@ -130,6 +136,14 @@ fun GuideGrid(channels: List<Channel>, onCatchup: ((Channel, Programme) -> Unit)
                             }
                             Spacer(Modifier.width(8.dp))
                             ProgrammeRow(progs, windowStart, windowEnd, perMin, timeW, catchup = ch.archiveDays > 0,
+                                focusAt = focusAt?.takeIf { it.first == ch.id }?.second,
+                                onFocusedAt = { focusAt = null },
+                                onPage = { dir, t ->
+                                    val nowSlot = System.currentTimeMillis() / SLOT * SLOT
+                                    // Earlier than now only on channels with catch-up, and only as far back as they keep.
+                                    if (dir < 0 && windowStart - SLOT * 2 < nowSlot - ch.archiveDays * 24 * 60 * MIN) false
+                                    else { windowStart += dir * SLOT * 2; focusAt = ch.id to t; true }
+                                },
                                 onFocus = { p -> focused = ch to p }, onClick = { p ->
                                     // Finished programme on a catch-up channel: watch it from the start.
                                     if (p != null && onCatchup != null && ch.archiveDays > 0 && p.end <= System.currentTimeMillis() &&
@@ -148,6 +162,10 @@ fun GuideGrid(channels: List<Channel>, onCatchup: ((Channel, Programme) -> Unit)
 private fun ProgrammeRow(
     progs: List<Programme>?, from: Long, to: Long, perMin: Dp, totalW: Dp, catchup: Boolean,
     onFocus: (Programme?) -> Unit, onClick: (Programme?) -> Unit,
+    /** Put the cursor on the programme showing at this time (after the grid moved an hour). */
+    focusAt: Long? = null, onFocusedAt: () -> Unit = {},
+    /** Past the right (dir 1) or left (dir -1) edge: move the grid; returns false if it can't go further. */
+    onPage: (dir: Int, at: Long) -> Boolean = { _, _ -> false },
 ) {
     val now = System.currentTimeMillis()
     if (progs.isNullOrEmpty()) {
@@ -158,15 +176,34 @@ private fun ProgrammeRow(
         }
         return
     }
+    val shown = progs.filter { minOf(it.end, to) > maxOf(it.start, from) }
+    val target = focusAt?.let { t -> shown.firstOrNull { t >= it.start && t < it.end } ?: shown.lastOrNull { it.start <= t } ?: shown.firstOrNull() }
+    val targetFr = remember { FocusRequester() }
+    if (target != null) LaunchedEffect(focusAt, target) {
+        delay(30)
+        // Keep trying as the new hour's listings arrive, until the right programme has the cursor.
+        if (runCatching { targetFr.requestFocus() }.isSuccess && focusAt!! >= target.start && focusAt < target.end) onFocusedAt()
+    }
     Row {
         var cursor = from
-        for (p in progs) {
+        shown.forEachIndexed { i, p ->
             val s = maxOf(p.start, from); val e = minOf(p.end, to)
-            if (e <= s) continue
             if (s > cursor) Spacer(Modifier.width(perMin * ((s - cursor) / MIN).toFloat()))
             val w = perMin * ((e - s) / MIN).toFloat()
             val live = now in p.start until p.end
-            FocusBox(onClick = { onClick(p) }, modifier = Modifier.width(maxOf(w - 2.dp, 6.dp)).height(48.dp),
+            val edgeKeys = Modifier.onPreviewKeyEvent { ev ->
+                val k = ev.nativeKeyEvent
+                if (k.action != android.view.KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
+                when (k.keyCode) {
+                    // Last programme on screen: Right moves the guide an hour later, onto what's on next.
+                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> i == shown.lastIndex && onPage(1, minOf(p.end, to))
+                    // First programme, with earlier times available: Left moves an hour earlier.
+                    android.view.KeyEvent.KEYCODE_DPAD_LEFT -> i == 0 && onPage(-1, from - 1)
+                    else -> false
+                }
+            }
+            FocusBox(onClick = { onClick(p) }, modifier = Modifier.width(maxOf(w - 2.dp, 6.dp)).height(48.dp).then(edgeKeys)
+                .then(if (p == target) Modifier.focusRequester(targetFr) else Modifier),
                 selected = live, shape = RoundedCornerShape(6.dp), onFocus = { onFocus(p) }) {
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
                     Text(p.title, fontSize = 12.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
