@@ -435,6 +435,10 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     TvButton("Change login details", onClick = { editing = true }, modifier = Modifier.focusRequester(fr))
                     if (prefs.isStalker) TvButton("Portal log", onClick = { showLog = true })
+                    TvButton("Check for updates", onClick = { ca.sanjwad.tvplayer.Updater.manualCheck.intValue++ })
+                }
+                ca.sanjwad.tvplayer.Updater.manualStatus.value?.let {
+                    Spacer(Modifier.height(6.dp)); Text(it, fontSize = 14.sp, color = TextDim)
                 }
             } else {
                 Text("Change login details", fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.SemiBold)

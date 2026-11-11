@@ -56,6 +56,17 @@ fun UpdatePrompt() {
         delay(3000) // let the app settle first
         update = withContext(Dispatchers.IO) { Updater.check() }
     }
+    // "Check for updates" in Settings: check now and open this window straight away if there's one.
+    val manual = Updater.manualCheck.intValue
+    LaunchedEffect(manual) {
+        if (manual == 0) return@LaunchedEffect
+        Updater.manualStatus.value = "Checking…"
+        val r = withContext(Dispatchers.IO) { runCatching { Updater.checkOrThrow() } }
+        r.onSuccess { found ->
+            if (found != null) { update = found; dismissed = false; state = "ask"; Updater.manualStatus.value = "Build ${found.versionCode} is ready" }
+            else Updater.manualStatus.value = "You have the newest build (${BuildConfig.VERSION_CODE})"
+        }.onFailure { Updater.manualStatus.value = "Couldn't check: ${it.message ?: "no connection"}" }
+    }
     val u = update ?: return
     if (dismissed) return
 

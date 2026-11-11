@@ -19,6 +19,11 @@ object Updater {
 
     data class Update(val versionCode: Int, val versionName: String)
 
+    /** Bumped by the "Check for updates" button in Settings; the update window listens for it. */
+    val manualCheck = androidx.compose.runtime.mutableIntStateOf(0)
+    /** What that button shows next to it: "Checking…", "Up to date", … */
+    val manualStatus = androidx.compose.runtime.mutableStateOf<String?>(null)
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
@@ -26,14 +31,18 @@ object Updater {
         .build()
 
     /** Returns the newer version on GitHub, or null if this one is current (or the check failed). */
-    fun check(): Update? = runCatching {
-        http.newCall(Request.Builder().url("$BASE/version.json").build()).execute().use { r ->
-            if (!r.isSuccessful) return null
+    fun check(): Update? = runCatching { checkOrThrow() }.getOrNull()
+
+    /** Like [check] but a failed check throws, so the Settings button can say so. */
+    fun checkOrThrow(): Update? {
+        // A fresh address each time so a cached copy of version.json can't hide a new build.
+        http.newCall(Request.Builder().url("$BASE/version.json?t=${System.currentTimeMillis()}").header("Cache-Control", "no-cache").build()).execute().use { r ->
+            if (!r.isSuccessful) throw java.io.IOException("GitHub said ${r.code}")
             val o = JSONObject(r.body?.string().orEmpty())
             val code = o.optInt("versionCode", 0)
-            if (code > BuildConfig.VERSION_CODE) Update(code, o.optString("versionName")) else null
+            return if (code > BuildConfig.VERSION_CODE) Update(code, o.optString("versionName")) else null
         }
-    }.getOrNull()
+    }
 
     /** Downloads the new APK, reporting progress 0..1. */
     fun download(ctx: Context, onProgress: (Float) -> Unit): File {
