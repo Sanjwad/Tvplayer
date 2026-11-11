@@ -8,20 +8,49 @@ concurrency: { group: website, cancel-in-progress: false }
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || vars.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      # Prices in cents. Change them under Settings > Secrets and variables > Actions > Variables.
+      PRICE_MONTHLY_CENTS: ${{ vars.PRICE_MONTHLY_CENTS || '200' }}
+      PRICE_LIFETIME_CENTS: ${{ vars.PRICE_LIFETIME_CENTS || '4000' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
-      - name: Deploy
+      - name: Find or create the accounts store
+        run: |
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/storage/kv/namespaces"
+          id=$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$api?per_page=100" | jq -r '.result[] | select(.title=="chinooktv-accounts") | .id' | head -1)
+          if [ -z "$id" ]; then
+            id=$(curl -fsS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H "Content-Type: application/json" \
+              --data '{"title":"chinooktv-accounts"}' "$api" | jq -r '.result.id')
+          fi
+          echo "KV id: $id"
+          sed -i "s/__ACCOUNTS_KV_ID__/$id/" website/wrangler.toml
+      - name: Deploy site
         working-directory: website
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || vars.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx --yes wrangler@4 deploy 2>&1 | tee deploy.log
+        run: npx --yes wrangler@4 deploy 2>&1 | tee deploy.log; exit ${PIPESTATUS[0]}
+      - name: Set up Stripe
+        working-directory: website
+        run: |
+          if [ -z "$STRIPE_SECRET_KEY" ]; then echo "::warning::Add the STRIPE_SECRET_KEY secret to turn on payments"; exit 0; fi
+          have=$(npx --yes wrangler@4 secret list --format json 2>/dev/null | jq -r '.[].name' || true)
+          echo "$have" | grep -qx STRIPE_WEBHOOK_SECRET && export NEED_WEBHOOK_SECRET=0 || export NEED_WEBHOOK_SECRET=1
+          # a different Stripe key (e.g. switching test → live) also needs a fresh webhook
+          keyhash=$(printf '%s' "$STRIPE_SECRET_KEY" | sha256sum | cut -c1-16)
+          echo "$have" | grep -qx "STRIPE_KEY_$keyhash" || export NEED_WEBHOOK_SECRET=1
+          node stripe-setup.mjs
+          printf '%s' "$STRIPE_SECRET_KEY" | npx --yes wrangler@4 secret put STRIPE_SECRET_KEY
+          if [ -s webhook-secret.txt ]; then
+            npx --yes wrangler@4 secret put STRIPE_WEBHOOK_SECRET < webhook-secret.txt
+            for old in $(echo "$have" | grep '^STRIPE_KEY_' || true); do npx --yes wrangler@4 secret delete "$old" --force || true; done
+            printf '1' | npx --yes wrangler@4 secret put "STRIPE_KEY_$keyhash"
+            rm -f webhook-secret.txt
+          fi
       - name: Check site
         run: |
-          sleep 20
-          for u in https://chinooktv.com https://chinooktv-site.sanjwad.workers.dev; do
-            echo "== $u"; curl -sS -o /dev/null -w "%{http_code}\n" --max-time 20 "$u" || true
-          done
-          curl -sS -I --max-time 20 https://chinooktv.ca | head -3 || true
+          sleep 15
+          curl -sS -o /dev/null -w "home %{http_code}\n" --max-time 20 https://chinooktv.com || true
+          curl -sS --max-time 20 https://chinooktv.com/api/prices; echo

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thanks for buying ChinookTV</title><link rel="icon" href="/icon.png">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800&family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/page.css"></head>
+<body>
+<header><div class="wrap"><a class="brand" href="/"><img src="/icon.png" alt="">ChinookTV</a><h1>You're all set</h1></div></header>
+<main class="wrap">
+  <div id="wait"><p>Getting your activation code…</p></div>
+  <div id="done" hidden>
+    <p>Your activation code:</p>
+    <div class="code" id="code"></div>
+    <p class="muted">We've also emailed your receipt. Keep this code somewhere safe: it works on up to 5 TVs in your home.</p>
+    <h2>Activate a TV</h2>
+    <ol>
+      <li>Install ChinookTV: in the Downloader app, type <strong>chinooktv.com/get</strong>.</li>
+      <li>Open ChinookTV, go to <strong>Settings</strong> and choose <strong>Activate</strong>.</li>
+      <li>Type the code above.</li>
+    </ol>
+    <p><a class="btn" href="/account.html">Manage your account</a></p>
+  </div>
+  <p id="err" class="err" hidden></p>
+</main>
+<script>
+(async function(){
+  const id = new URLSearchParams(location.search).get("session_id");
+  const err = t => { document.getElementById("wait").hidden = true; const e = document.getElementById("err"); e.textContent = t; e.hidden = false; };
+  if (!id) return err("This page needs the link from checkout. If you've paid, check your email or contact hello@chinooktv.com.");
+  for (let i = 0; i < 15; i++) {
+    try {
+      const d = await (await fetch("/api/session?session_id=" + encodeURIComponent(id))).json();
+      if (d.code) {
+        try { localStorage.setItem("code", d.code) } catch(e) {}
+        document.getElementById("code").textContent = d.code;
+        document.getElementById("wait").hidden = true; document.getElementById("done").hidden = false; return;
+      }
+    } catch (e) {}
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  err("Your payment is still being confirmed. Refresh this page in a minute, or contact hello@chinooktv.com.");
+})();
+</script>
+</body></html>

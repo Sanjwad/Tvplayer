@@ -98,7 +98,8 @@
   .amount small{font:400 1rem var(--body);opacity:.75}
   .price ul{padding-left:20px;margin:18px 0 26px}
   .price .btn{width:100%;text-align:center}
-  .price .btn[aria-disabled]{cursor:not-allowed;opacity:.65}
+  button.btn{border:0;cursor:pointer;font-family:inherit}
+  button.btn[disabled]{opacity:.6;cursor:wait}
   .price:not(.best) .btn{background:var(--ink);color:var(--snow)}
   .note{color:var(--muted);font-size:.95rem;margin-top:22px}
 
@@ -244,18 +245,20 @@
       <div class="prices">
         <div class="price">
           <h3>Monthly</h3>
-          <div class="amount">$2 <small>CAD a month</small></div>
+          <div class="amount"><span data-price="monthly">$2</span> <small>CAD a month</small></div>
           <ul><li>All features</li><li>Up to 5 TVs</li><li>Cancel any time</li></ul>
-          <a class="btn" aria-disabled="true">Available soon</a>
+          <button class="btn" data-buy="monthly">Get monthly</button>
         </div>
         <div class="price best">
           <span class="tag">Best value</span>
           <h3>Lifetime</h3>
-          <div class="amount">$40 <small>CAD once</small></div>
+          <div class="amount"><span data-price="lifetime">$40</span> <small>CAD once</small></div>
           <ul><li>All features, for good</li><li>Up to 5 TVs</li><li>Every future update</li></ul>
-          <a class="btn btn-warm" aria-disabled="true">Available soon</a>
+          <button class="btn btn-warm" data-buy="lifetime">Get lifetime</button>
         </div>
       </div>
+      <p class="note" id="buy-msg" role="status"></p>
+      <p class="note">Plus HST where it applies. Already bought? <a href="/account.html">Manage your account</a>.</p>
       <p class="note">ChinookTV is a player. It doesn't include any channels, movies or shows: you'll need your own subscription from an IPTV provider.</p>
     </div>
   </section>
@@ -294,8 +297,41 @@
   <div class="wrap">
     <div><strong>ChinookTV</strong>, made in Ontario, Canada.</div>
     <div>ChinookTV is a media player only. It does not provide, host or sell any TV channels, movies or shows. Use it only with content you have the right to watch.</div>
-    <div><a href="mailto:hello@chinooktv.com">hello@chinooktv.com</a></div>
+    <div><a href="/account.html">Your account</a> &nbsp; <a href="mailto:hello@chinooktv.com">hello@chinooktv.com</a></div>
   </div>
 </footer>
+<script>
+// A provider's link (chinooktv.com/?ref=BRIAN) is remembered for 60 days and sent with the purchase.
+(function(){
+  const store = { get(k){ try{ return localStorage.getItem(k) }catch(e){ return null } },
+                  set(k,v){ try{ localStorage.setItem(k,v) }catch(e){} } };
+  const q = new URLSearchParams(location.search).get("ref");
+  if (q) store.set("ref", JSON.stringify({ code: q, at: Date.now() }));
+  function ref(){ try{ const r = JSON.parse(store.get("ref")); return r && Date.now()-r.at < 60*864e5 ? r.code : "" }catch(e){ return "" } }
+
+  fetch("/api/prices").then(r => r.json()).then(p => {
+    for (const el of document.querySelectorAll("[data-price]")) {
+      const x = p[el.dataset.price]; if (!x) continue;
+      const v = x.amount / 100;
+      el.textContent = "$" + (Number.isInteger(v) ? v : v.toFixed(2));
+    }
+  }).catch(() => {});
+
+  const msg = document.getElementById("buy-msg");
+  for (const b of document.querySelectorAll("[data-buy]")) {
+    b.addEventListener("click", async () => {
+      const label = b.textContent; b.disabled = true; b.textContent = "Opening checkout…"; msg.textContent = "";
+      try {
+        const r = await fetch("/api/checkout", { method: "POST", headers: { "Content-Type": "application/json" },
+                                                 body: JSON.stringify({ plan: b.dataset.buy, ref: ref() }) });
+        const d = await r.json();
+        if (d.url) { location.href = d.url; return; }
+        msg.textContent = d.error || "Checkout isn't available right now. Try again shortly.";
+      } catch (e) { msg.textContent = "Couldn't reach checkout. Check your connection and try again."; }
+      b.disabled = false; b.textContent = label;
+    });
+  }
+})();
+</script>
 </body>
 </html>

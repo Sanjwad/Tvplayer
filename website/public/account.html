@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your ChinookTV account</title><link rel="icon" href="/icon.png">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800&family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/page.css"></head>
+<body>
+<header><div class="wrap"><a class="brand" href="/"><img src="/icon.png" alt="">ChinookTV</a><h1>Your account</h1></div></header>
+<main class="wrap">
+  <form id="f">
+    <label for="c">Activation code</label><br>
+    <input id="c" autocomplete="off" placeholder="ABCD-EFGH" maxlength="9" required>
+    <button class="btn" type="submit">Show account</button>
+  </form>
+  <p id="err" class="err" role="alert"></p>
+  <div id="acct" hidden>
+    <h2 id="plan"></h2>
+    <p id="status" class="muted"></p>
+    <h3>TVs using this code (<span id="count"></span>)</h3>
+    <ul class="tvs" id="tvs"></ul>
+    <p id="billing" hidden><button class="btn warm" id="portal">Manage billing and receipts</button></p>
+    <p class="muted">Lost your code? Contact <a href="mailto:hello@chinooktv.com">hello@chinooktv.com</a> with the email you paid with.</p>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+async function post(path, body){ const r = await fetch(path, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body) }); return r.json(); }
+let code = "";
+async function show(){
+  $("err").textContent = "";
+  const d = await post("/api/account", { code });
+  if (d.error) { $("acct").hidden = true; $("err").textContent = d.error; return; }
+  code = d.code; try { localStorage.setItem("code", code) } catch(e) {}
+  $("plan").textContent = d.plan === "lifetime" ? "Lifetime plan" : "Monthly plan";
+  $("status").textContent = d.active ? "Active" : "Not active: update your payment details below to keep watching.";
+  $("count").textContent = d.tvs.length + " of " + d.max;
+  $("tvs").innerHTML = "";
+  if (!d.tvs.length) $("tvs").innerHTML = "<li class='muted'>No TVs yet. Enter this code in ChinookTV under Settings → Activate.</li>";
+  for (const t of d.tvs) {
+    const li = document.createElement("li");
+    li.textContent = t.name + " · added " + new Date(t.added).toLocaleDateString();
+    const b = document.createElement("button"); b.className = "btn small"; b.textContent = "Remove";
+    b.onclick = async () => { await post("/api/remove-tv", { code, device: t.id }); show(); };
+    li.appendChild(b); $("tvs").appendChild(li);
+  }
+  $("billing").hidden = !d.canManageBilling;
+  $("acct").hidden = false;
+}
+$("f").onsubmit = e => { e.preventDefault(); code = $("c").value; show(); };
+$("portal").onclick = async () => { const d = await post("/api/portal", { code }); if (d.url) location.href = d.url; else $("err").textContent = d.error; };
+try { const saved = localStorage.getItem("code"); if (saved) { $("c").value = saved; code = saved; show(); } } catch(e) {}
+</script>
+</body></html>
