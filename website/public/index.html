@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChinookTV: the IPTV player for Android TV and Fire TV</title>
+<meta name="description" content="ChinookTV turns your IPTV login into a TV guide, movie and show shelves, and a watchlist that follows you between TVs. Made in Canada.">
+<link rel="icon" href="/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --cloud:#1F2B37;      /* the cloud deck */
+    --ridge:#2E4558;      /* Rockies at dusk */
+    --arch:#F4B860;       /* the warm band of clear sky */
+    --arch-hi:#FFE2A8;
+    --snow:#F6F8F9;
+    --frost:#DCE5EB;
+    --ink:#1A242E;
+    --muted:#55677A;
+    --ember:#E5584B;      /* the play button in the logo */
+    --display:"Big Shoulders Display", "Arial Narrow", sans-serif;
+    --body:"Atkinson Hyperlegible", system-ui, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+  body{margin:0;background:var(--snow);color:var(--ink);font:400 1.0625rem/1.6 var(--body)}
+  a{color:inherit}
+  :focus-visible{outline:3px solid var(--arch);outline-offset:3px;border-radius:4px}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+  /* ---------- hero: the chinook arch ---------- */
+  .sky{position:relative;overflow:hidden;color:var(--snow);
+       background:linear-gradient(180deg,#18222C 0%,var(--cloud) 38%,#3A3F45 52%,var(--arch) 66%,var(--arch-hi) 74%,#9FB3C2 88%,var(--ridge) 100%)}
+  /* the hard lower edge of the cloud deck is what makes an arch an arch */
+  .sky::before{content:"";position:absolute;inset:0 0 auto 0;height:58%;
+       background:radial-gradient(140% 100% at 50% 0%,var(--cloud) 62%,transparent 63%);opacity:.92}
+  nav{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;padding:22px 0}
+  .brand{display:flex;align-items:center;gap:10px;text-decoration:none;font:800 1.6rem/1 var(--display);letter-spacing:.02em}
+  .brand img{width:34px;height:34px;border-radius:8px}
+  nav ul{display:flex;gap:26px;list-style:none;margin:0;padding:0;font-size:.98rem}
+  nav ul a{text-decoration:none;opacity:.85}
+  nav ul a:hover{opacity:1;text-decoration:underline;text-underline-offset:4px}
+  .hero{position:relative;z-index:2;padding:48px 0 0}
+  .hero h1{font:800 clamp(3rem,7.4vw,6.2rem)/.92 var(--display);margin:0;max-width:11ch;letter-spacing:-.005em}
+  .hero p{max-width:34rem;font-size:1.2rem;line-height:1.55;margin:22px 0 30px;color:#E6EDF2}
+  .ctas{display:flex;flex-wrap:wrap;gap:14px}
+  .btn{display:inline-block;padding:14px 24px;border-radius:999px;font-weight:700;text-decoration:none;font-size:1.02rem}
+  .btn-warm{background:var(--arch);color:var(--ink)}
+  .btn-warm:hover{background:var(--arch-hi)}
+  .btn-line{border:2px solid rgba(246,248,249,.55);color:var(--snow)}
+  .btn-line:hover{border-color:var(--snow)}
+
+  /* the TV sits in the clear band of sky, in front of the mountains */
+  .stage{position:relative;z-index:2;margin:64px auto 0;max-width:900px}
+  .tv{position:relative;aspect-ratio:16/9;border-radius:14px;background:#0F1720;border:10px solid #0B1117;
+      box-shadow:0 40px 80px -30px rgba(10,20,30,.7);overflow:hidden;display:grid;grid-template-columns:7% 1fr}
+  .tv .rail{background:#141D27;display:flex;flex-direction:column;align-items:center;gap:9%;padding-top:14%}
+  .tv .rail i{display:block;width:34%;aspect-ratio:1;border-radius:3px;background:#3B4B5C}
+  .tv .rail i.on{background:var(--ember)}
+  .tv .screen{padding:3.4% 3.4% 0;display:grid;grid-template-rows:auto auto 1fr;gap:5%;
+      background:radial-gradient(90% 70% at 85% 0%,rgba(244,184,96,.28),transparent 60%)}
+  .tv .title{font:800 clamp(.9rem,2.5vw,1.6rem)/1 var(--display);color:var(--snow)}
+  .tv .meta{display:flex;gap:6px;margin-top:6px}
+  .tv .meta b{font:700 clamp(.45rem,1vw,.66rem)/1 var(--body);padding:3px 6px;border-radius:3px;background:#F2C94C;color:#222}
+  .tv .meta b+b{background:#5EC8E5}
+  .tv .row h4{margin:0 0 6px;font:600 clamp(.5rem,1.1vw,.75rem)/1 var(--display);color:#C9D6DF;letter-spacing:.04em}
+  .tv .posters{display:grid;grid-template-columns:repeat(7,1fr);gap:1.4%}
+  .tv .posters span{aspect-ratio:2/3;border-radius:4px}
+  .tv .posters span:first-child{outline:2px solid var(--ember);outline-offset:1px}
+  .ridge{position:absolute;left:0;right:0;bottom:-1px;z-index:1;width:100%;height:auto;display:block}
+  .hero-foot{position:relative;z-index:2;height:90px}
+
+  /* ---------- sections ---------- */
+  section{padding:96px 0}
+  h2{font:800 clamp(2.2rem,4.6vw,3.4rem)/1 var(--display);margin:0 0 18px;letter-spacing:-.005em}
+  .lede{max-width:40rem;color:var(--muted);font-size:1.12rem;margin:0 0 48px}
+
+  .features{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:44px 64px}
+  .feature{border-top:3px solid var(--ink);padding-top:18px}
+  .feature h3{font:800 1.6rem/1.1 var(--display);margin:0 0 8px}
+  .feature p{margin:0;color:var(--muted);max-width:30rem}
+
+  .compare{background:var(--frost)}
+  table{width:100%;border-collapse:collapse;font-size:1.02rem;background:var(--snow);border-radius:12px;overflow:hidden}
+  th,td{text-align:left;padding:15px 20px;border-bottom:1px solid var(--frost)}
+  thead th{font:800 1.25rem/1 var(--display);background:var(--cloud);color:var(--snow)}
+  td:nth-child(2),td:nth-child(3),th:nth-child(2),th:nth-child(3){text-align:center;width:22%}
+  .yes{color:#1E7A4F;font-weight:700}.no{color:#9AA8B5}
+
+  .prices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:28px;max-width:820px}
+  .price{border:2px solid var(--ink);border-radius:18px;padding:32px}
+  .price.best{background:var(--cloud);color:var(--snow);border-color:var(--cloud);position:relative}
+  .price.best .tag{position:absolute;top:-14px;left:28px;background:var(--arch);color:var(--ink);font-weight:700;font-size:.85rem;padding:4px 12px;border-radius:999px}
+  .price h3{margin:0;font:800 1.6rem/1 var(--display)}
+  .amount{font:800 4rem/1 var(--display);margin:16px 0 4px}
+  .amount small{font:400 1rem var(--body);opacity:.75}
+  .price ul{padding-left:20px;margin:18px 0 26px}
+  .price .btn{width:100%;text-align:center}
+  .price .btn[aria-disabled]{cursor:not-allowed;opacity:.65}
+  .price:not(.best) .btn{background:var(--ink);color:var(--snow)}
+  .note{color:var(--muted);font-size:.95rem;margin-top:22px}
+
+  .steps{list-style:none;counter-reset:s;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:36px}
+  .steps li{counter-increment:s}
+  .steps li::before{content:counter(s);display:grid;place-items:center;width:52px;height:52px;border-radius:50%;
+      background:var(--arch);font:800 1.7rem/1 var(--display);margin-bottom:14px}
+  .steps h3{font:800 1.45rem/1.1 var(--display);margin:0 0 6px}
+  .steps p{margin:0;color:var(--muted)}
+  code{font:700 1.05rem var(--body);background:var(--frost);padding:2px 8px;border-radius:6px}
+
+  .providers{background:var(--cloud);color:var(--snow)}
+  .providers .lede{color:#C9D6DF}
+  .providers .split{display:grid;grid-template-columns:1.3fr 1fr;gap:48px;align-items:end}
+  .providers ul{margin:0;padding-left:20px;color:#DCE5EB}
+
+  footer{padding:48px 0 64px;color:var(--muted);font-size:.95rem}
+  footer .wrap{display:grid;gap:14px}
+  footer strong{color:var(--ink)}
+
+  @media (max-width:820px){
+    nav ul{display:none}
+    .features,.prices,.steps,.providers .split{grid-template-columns:1fr}
+    section{padding:72px 0}
+    th,td{padding:12px 12px}
+  }
+</style>
+</head>
+<body>
+
+<header class="sky">
+  <div class="wrap">
+    <nav aria-label="Main">
+      <a class="brand" href="/"><img src="/icon.png" alt="">ChinookTV</a>
+      <ul>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#pricing">Pricing</a></li>
+        <li><a href="#install">Install</a></li>
+        <li><a href="#providers">For providers</a></li>
+      </ul>
+    </nav>
+    <div class="hero">
+      <h1>A warmer way to watch IPTV.</h1>
+      <p>ChinookTV turns your provider's login into a proper TV guide, movie and show shelves with real posters and ratings, and a watchlist that follows you from room to room.</p>
+      <div class="ctas">
+        <a class="btn btn-warm" href="#install">Install ChinookTV</a>
+        <a class="btn btn-line" href="#pricing">See pricing</a>
+      </div>
+    </div>
+    <div class="stage" aria-hidden="true">
+      <div class="tv">
+        <div class="rail"><i></i><i></i><i class="on"></i><i></i><i></i><i></i></div>
+        <div class="screen">
+          <div>
+            <div class="title">Saturday night pick</div>
+            <div class="meta"><b>IMDb 7.8</b><b>TMDB 7.6</b></div>
+          </div>
+          <div class="row">
+            <h4>New this week</h4>
+            <div class="posters">
+              <span style="background:linear-gradient(160deg,#E5584B,#6B1F2A)"></span>
+              <span style="background:linear-gradient(160deg,#5EC8E5,#1D4A6B)"></span>
+              <span style="background:linear-gradient(160deg,#F4B860,#8A4B1F)"></span>
+              <span style="background:linear-gradient(160deg,#9B8AE0,#2E2463)"></span>
+              <span style="background:linear-gradient(160deg,#7FD1A6,#1E5A44)"></span>
+              <span style="background:linear-gradient(160deg,#E9E2D0,#7A6E58)"></span>
+              <span style="background:linear-gradient(160deg,#F28AB3,#5E1F3E)"></span>
+            </div>
+          </div>
+          <div class="row">
+            <h4>Continue watching</h4>
+            <div class="posters">
+              <span style="background:linear-gradient(160deg,#3D5A73,#16222D);outline:none"></span>
+              <span style="background:linear-gradient(160deg,#C2604A,#3B1C17)"></span>
+              <span style="background:linear-gradient(160deg,#F2D16B,#6B5A12)"></span>
+              <span style="background:linear-gradient(160deg,#6FA3C7,#22384B)"></span>
+              <span style="background:linear-gradient(160deg,#B9C4CC,#4A5864)"></span>
+              <span style="background:linear-gradient(160deg,#E07B39,#5A2A0E)"></span>
+              <span style="background:linear-gradient(160deg,#8CC084,#2D4A29)"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <svg class="ridge" viewBox="0 0 1440 220" preserveAspectRatio="none" aria-hidden="true">
+    <path fill="#2E4558" d="M0 150 L120 96 L190 128 L300 52 L380 112 L470 70 L560 130 L650 84 L720 34 L800 98 L900 60 L990 120 L1080 76 L1170 118 L1260 66 L1350 104 L1440 80 L1440 220 L0 220Z"/>
+    <path fill="#22374A" d="M0 182 L140 140 L260 170 L380 128 L520 172 L640 136 L780 176 L900 142 L1040 178 L1180 144 L1300 172 L1440 150 L1440 220 L0 220Z"/>
+    <path fill="#F6F8F9" d="M0 212 L1440 204 L1440 220 L0 220Z"/>
+  </svg>
+  <div class="hero-foot"></div>
+</header>
+
+<main>
+  <section id="features">
+    <div class="wrap">
+      <h2>Everything in one place</h2>
+      <p class="lede">Bring the login your IPTV provider gave you. ChinookTV does the rest on your Android TV, NVIDIA Shield, Fire TV Stick or Google TV device.</p>
+      <div class="features">
+        <div class="feature">
+          <h3>Live TV with a real guide</h3>
+          <p>Channel groups, favourites and a full programme guide. Missed something? Jump back with catch-up on channels that support it.</p>
+        </div>
+        <div class="feature">
+          <h3>Movies and shows that look the part</h3>
+          <p>Posters, IMDb and TMDB ratings, cast pages, trivia and "more like this", even when your provider's own listings are bare.</p>
+        </div>
+        <div class="feature">
+          <h3>Your list follows you</h3>
+          <p>My List, favourite channels and where you're up to in every show stay the same on every TV in the house. Kids can keep their own.</p>
+        </div>
+        <div class="feature">
+          <h3>Pick up where you left off</h3>
+          <p>Continue watching, the next episode plays on its own, and a long press marks a whole season as watched.</p>
+        </div>
+        <div class="feature">
+          <h3>Works with your provider</h3>
+          <p>Xtream Codes logins and Stalker (MAC address) portals, so it works with most providers out of the box.</p>
+        </div>
+        <div class="feature">
+          <h3>Keeps playing</h3>
+          <p>When a stream hiccups, ChinookTV quietly reconnects and carries on, instead of stopping with an error.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="compare">
+    <div class="wrap">
+      <h2>Coming from TiVimate?</h2>
+      <p class="lede">You'll feel at home on live TV. Movies and shows are where ChinookTV pulls ahead.</p>
+      <div class="features">
+        <div class="feature"><h3>What stays the same</h3><p>Channel groups, favourites, a full guide and catch-up, all driven by the remote the way you're used to. Your Xtream or MAC login works as it is.</p></div>
+        <div class="feature"><h3>What's new</h3><p>Movie and show pages with ratings, cast and trivia; a list that syncs between TVs; the next episode starting by itself; and a long press to mark a season watched.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="pricing">
+    <div class="wrap">
+      <h2>Simple pricing</h2>
+      <p class="lede">One account covers up to five TVs in your home.</p>
+      <div class="prices">
+        <div class="price">
+          <h3>Monthly</h3>
+          <div class="amount">$2 <small>CAD a month</small></div>
+          <ul><li>All features</li><li>Up to 5 TVs</li><li>Cancel any time</li></ul>
+          <a class="btn" aria-disabled="true">Available soon</a>
+        </div>
+        <div class="price best">
+          <span class="tag">Best value</span>
+          <h3>Lifetime</h3>
+          <div class="amount">$40 <small>CAD once</small></div>
+          <ul><li>All features, for good</li><li>Up to 5 TVs</li><li>Every future update</li></ul>
+          <a class="btn btn-warm" aria-disabled="true">Available soon</a>
+        </div>
+      </div>
+      <p class="note">ChinookTV is a player. It doesn't include any channels, movies or shows: you'll need your own subscription from an IPTV provider.</p>
+    </div>
+  </section>
+
+  <section id="install" class="compare">
+    <div class="wrap">
+      <h2>Install in three steps</h2>
+      <p class="lede">Works on Android TV, Google TV, NVIDIA Shield, Onn and Amazon Fire TV devices.</p>
+      <ol class="steps">
+        <li><h3>Get Downloader</h3><p>Install the free <strong>Downloader</strong> app from your TV's app store.</p></li>
+        <li><h3>Enter the address</h3><p>In Downloader, type <code>chinooktv.com/get</code> and install ChinookTV when it finishes.</p></li>
+        <li><h3>Sign in with your provider</h3><p>Open ChinookTV and enter the server, username and password (or portal and MAC) your provider gave you.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="providers" class="providers">
+    <div class="wrap split-wrap">
+      <div class="split">
+        <div>
+          <h2>For providers</h2>
+          <p class="lede">Recommend ChinookTV to your customers and give them a discount code of their own. You'll see every sign-up that comes through your code.</p>
+          <a class="btn btn-warm" href="mailto:hello@chinooktv.com?subject=Provider%20referral%20code">Ask for a referral code</a>
+        </div>
+        <ul>
+          <li>A personal code and link for your customers</li>
+          <li>A simple page showing your sign-ups</li>
+          <li>Works with Xtream and Stalker services</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div><strong>ChinookTV</strong>, made in Ontario, Canada.</div>
+    <div>ChinookTV is a media player only. It does not provide, host or sell any TV channels, movies or shows. Use it only with content you have the right to watch.</div>
+    <div><a href="mailto:hello@chinooktv.com">hello@chinooktv.com</a></div>
+  </div>
+</footer>
+</body>
+</html>

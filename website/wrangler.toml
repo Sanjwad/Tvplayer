@@ -1,0 +1,16 @@
+name = "chinooktv-site"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+workers_dev = true
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+routes = [
+  { pattern = "chinooktv.com", custom_domain = true },
+  { pattern = "www.chinooktv.com", custom_domain = true },
+  { pattern = "chinooktv.ca", custom_domain = true },
+  { pattern = "www.chinooktv.ca", custom_domain = true },
+]

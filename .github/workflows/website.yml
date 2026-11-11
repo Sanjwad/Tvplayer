@@ -1,0 +1,27 @@
+name: Website
+on:
+  push:
+    branches: [main]
+    paths: ["website/**", ".github/workflows/website.yml"]
+  workflow_dispatch:
+concurrency: { group: website, cancel-in-progress: false }
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Deploy
+        working-directory: website
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || vars.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@4 deploy 2>&1 | tee deploy.log
+      - name: Check site
+        run: |
+          sleep 20
+          for u in https://chinooktv.com https://chinooktv-site.sanjwad.workers.dev; do
+            echo "== $u"; curl -sS -o /dev/null -w "%{http_code}\n" --max-time 20 "$u" || true
+          done
+          curl -sS -I --max-time 20 https://chinooktv.ca | head -3 || true
