@@ -81,7 +81,17 @@ fun HomeScreen(
         Triple("My List", 3, ca.sanjwad.tvplayer.R.drawable.ic_menu_list), Triple("Settings", 4, ca.sanjwad.tvplayer.R.drawable.ic_menu_settings),
     )
     val fr = remember { FocusRequester() }
-    LaunchedEffect(Unit) { delay(150); runCatching { fr.requestFocus() } }
+    LaunchedEffect(Unit) {
+        val vs = when (section) { 1 -> movies; 2 -> series; else -> null }
+        if (vs != null && vs.restoreFocus && !vs.gridMode) {
+            // Coming back from a title: its row puts the cursor back on it. If that can't happen, use the menu.
+            delay(900)
+            if (vs.restoreFocus) { vs.restoreFocus = false; runCatching { fr.requestFocus() } }
+        } else {
+            if (vs != null) vs.restoreFocus = false
+            delay(150); runCatching { fr.requestFocus() }
+        }
+    }
 
     // Back: first jump to the menu; from the menu, ask before closing the app.
     val ctx = LocalContext.current
@@ -257,6 +267,8 @@ private fun PosterRow(
     onRowFocus: () -> Unit = {},
     /** Scrolled near the end of the row: load more titles into it. */
     onNearEnd: (() -> Unit)? = null,
+    /** Movies/TV rows: where to remember this row's place when a title is opened. */
+    vs: VodState? = null, rowKey: String? = null,
 ) {
     Column {
         Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
@@ -265,7 +277,16 @@ private fun PosterRow(
             list == null -> Text("Loading…", color = TextDim, fontSize = 14.sp, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
             list.isEmpty() -> Text("Nothing here", color = TextDim, fontSize = 14.sp, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
             else -> {
-              val rowState = androidx.compose.foundation.lazy.rememberLazyListState(if (focusSeeAll) list.size else 0)
+              val saved = if (vs != null && rowKey != null) vs.rowScroll[rowKey] else null
+              val rowState = androidx.compose.foundation.lazy.rememberLazyListState(
+                  saved?.first ?: (if (focusSeeAll) list.size else 0), saved?.second ?: 0)
+              // Back from a title's page: put the cursor back on the tile that was opened.
+              val restoreFr = remember { FocusRequester() }
+              val restoreIdx = if (vs != null && vs.restoreFocus && vs.focusRow == rowKey) vs.focusIndex else -1
+              if (vs != null && restoreIdx in list.indices) LaunchedEffect(Unit) {
+                  delay(200)
+                  if (runCatching { restoreFr.requestFocus() }.isSuccess) vs.restoreFocus = false
+              }
               val seeAll = remember { FocusRequester() }
               if (focusSeeAll && onSeeAll != null) LaunchedEffect(Unit) {
                   delay(150); runCatching { seeAll.requestFocus() }; onSeeAllFocused()
@@ -276,7 +297,14 @@ private fun PosterRow(
               }
               LazyRow(state = rowState, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(list.size) { i -> val item = list[i]
-                    PosterTile(item, { onFocusItem(item); onRowFocus() }, badgeFor(item), if (i == 0) firstItem else Modifier) { onOpen(item) } }
+                    PosterTile(item, { onFocusItem(item); onRowFocus() }, badgeFor(item),
+                        (if (i == 0) firstItem else Modifier).then(if (i == restoreIdx) Modifier.focusRequester(restoreFr) else Modifier)) {
+                        if (vs != null && rowKey != null) {
+                            vs.rowScroll[rowKey] = rowState.firstVisibleItemIndex to rowState.firstVisibleItemScrollOffset
+                            vs.focusRow = rowKey; vs.focusIndex = i; vs.restoreFocus = true
+                        }
+                        onOpen(item)
+                    } }
                 if (onSeeAll != null) item {
                     FocusBox(onClick = onSeeAll, modifier = Modifier.focusRequester(seeAll).width(112.dp).aspectRatio(0.6f), shape = RoundedCornerShape(8.dp),
                         onFocus = onRowFocus) {
@@ -500,6 +528,10 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
     LaunchedEffect(firstTitle?.id) { if (hero == null && firstTitle != null) setHero(firstTitle) }
 
     val listState = androidx.compose.foundation.lazy.rememberLazyListState(s.rowsIndex, s.rowsOffset)
+    val openTitle: (VodItem) -> Unit = {
+        s.rowsIndex = listState.firstVisibleItemIndex; s.rowsOffset = listState.firstVisibleItemScrollOffset
+        onOpen(it)
+    }
 
     fun openGrid(categoryId: String) {
         s.rowsIndex = listState.firstVisibleItemIndex; s.rowsOffset = listState.firstVisibleItemScrollOffset
@@ -547,21 +579,21 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                     trendRows.forEachIndexed { pos, (i, t) ->
                         item("trend$i") {
                             CompositionLocalProvider(LocalBringIntoViewSpec provides rowSpec) {
-                            PosterRow(t.first, t.second, setHero, onOpen, onRowFocus = { alignRow(pos) }) }
+                            PosterRow(t.first, t.second, setHero, openTitle, onRowFocus = { alignRow(pos) }, vs = s, rowKey = "trend$i") }
                         }
                     }
                     val recent = s.recent
                     val recentShown = recent == null || recent.isNotEmpty()
                     if (recentShown) item("recent") {
                         CompositionLocalProvider(LocalBringIntoViewSpec provides rowSpec) {
-                        PosterRow("🆕  Recently added", recent, setHero, onOpen, onRowFocus = { alignRow(trendRows.size) }) }
+                        PosterRow("🆕  Recently added", recent, setHero, openTitle, onRowFocus = { alignRow(trendRows.size) }, vs = s, rowKey = "recent") }
                     }
                     itemsIndexed(rows, key = { _, r -> r.second.first().id }) { ci, (title, members) ->
                         // One category: its own row. Several with the same heading: one row that takes a page from each in turn.
                         val key = if (members.size == 1) members[0].id else VodLoader.mergedKey(members)
                         LaunchedEffect(key) { if (members.size == 1) VodLoader.row(s, key) else VodLoader.mergedRow(s, key, members.map { it.id }) }
                         CompositionLocalProvider(LocalBringIntoViewSpec provides rowSpec) {
-                        PosterRow(title, s.rowItems[key], setHero, onOpen, onSeeAll = null,
+                        PosterRow(title, s.rowItems[key], setHero, openTitle, onSeeAll = null, vs = s, rowKey = key,
                             onNearEnd = { rowScope.launch { if (members.size == 1) VodLoader.more(s, key) else VodLoader.mergedMore(s, key, members.map { it.id }) } },
                             focusSeeAll = s.returnTo == key, onSeeAllFocused = { s.returnTo = null },
                             onRowFocus = { alignRow(trendRows.size + (if (recentShown) 1 else 0) + ci) }) }

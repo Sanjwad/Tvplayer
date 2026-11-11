@@ -103,6 +103,12 @@ class VodState(val kind: String) {
     var rowsIndex = 0
     var rowsOffset = 0
     var returnTo: String? = null
+    /** Opening a title remembers each row's sideways position and which tile had the cursor,
+     *  so Back from the title's page lands in exactly the same place. */
+    val rowScroll = mutableMapOf<String, Pair<Int, Int>>()
+    var focusRow: String? = null
+    var focusIndex = -1
+    var restoreFocus = false
     var categories by mutableStateOf<List<Genre>>(emptyList())
     var category by mutableStateOf<String?>(null)
     var items by mutableStateOf<List<VodItem>>(emptyList())
