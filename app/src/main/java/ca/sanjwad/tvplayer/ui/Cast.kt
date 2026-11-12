@@ -51,6 +51,7 @@ import ca.sanjwad.tvplayer.stalker.TitleMatch
 import ca.sanjwad.tvplayer.stalker.TmdbClient
 import ca.sanjwad.tvplayer.stalker.VodItem
 import ca.sanjwad.tvplayer.stalker.XtreamClient
+import ca.sanjwad.tvplayer.stalker.StalkerClient
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -91,27 +92,50 @@ object CastLibrary {
             .firstOrNull { v -> val vy = yearOf(v); cy == null || vy == null || abs(vy - cy) <= 1 }
     }
 
-    /** Credit → (portal type, title in the library) for everything the provider has. */
-    fun match(credits: List<TmdbClient.Credit>): Map<TmdbClient.Credit, Pair<String, VodItem>> {
+    /**
+     * Credit → (portal type, title in the library) for everything the provider has.
+     * [quick]: Stalker only, answer from what's already on the TV and skip the portal searches.
+     */
+    fun match(credits: List<TmdbClient.Credit>, quick: Boolean = false): Map<TmdbClient.Credit, Pair<String, VodItem>> {
         val client = Session.client ?: return emptyMap()
         val out = LinkedHashMap<TmdbClient.Credit, Pair<String, VodItem>>()
         for (kind in listOf("movies", "series")) {
             val wanted = credits.filter { it.isSeries == (kind == "series") }
             if (wanted.isEmpty()) continue
             val type = typeFor(kind)
-            val index = catalogue(type).groupBy { TitleMatch.norm(it.name) }
             val missing = mutableListOf<TmdbClient.Credit>()
+            if (client is StalkerClient) {
+                // Stalker portals hand out 14 titles a page, so never download the list just for this:
+                // use the copy of the portal's titles kept on the TV, plus anything already loaded.
+                val loaded = (catalogues[type] ?: client.cachedCatalogue(type)).orEmpty().groupBy { TitleMatch.norm(it.name) }
+                val local = client.localExact(wanted.map { TitleMatch.norm(it.title) })
+                for (c in wanted) {
+                    val n = TitleMatch.norm(c.title)
+                    val hit = pick(loaded[n].orEmpty() + local[n].orEmpty(), c)
+                    if (hit != null) out[c] = type to hit else missing += c
+                }
+                if (!quick && missing.isNotEmpty()) {
+                    // Ask the portal about the best-known rest, several at a time rather than one by one.
+                    val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
+                    try {
+                        val jobs = missing.take(16).map { c ->
+                            c to pool.submit<List<VodItem>> {
+                                val q = TitleMatch.queryName(c.title)
+                                searched.getOrPut("$type|$q") { client.quickSearch(type, q) }
+                            }
+                        }
+                        for ((c, f) in jobs) {
+                            val res = runCatching { f.get(20, java.util.concurrent.TimeUnit.SECONDS) }.getOrDefault(emptyList())
+                            pick(res, c)?.let { out[c] = type to it }
+                        }
+                    } finally { pool.shutdownNow() }
+                }
+                continue
+            }
+            val index = catalogue(type).groupBy { TitleMatch.norm(it.name) }
             for (c in wanted) {
                 val hit = index[TitleMatch.norm(c.title)]?.let { pick(it, c) }
                 if (hit != null) out[c] = type to hit else missing += c
-            }
-            // Stalker portals only give us the newest titles up front, so search for the best-known rest.
-            if (client !is XtreamClient) {
-                for (c in missing.take(12)) {
-                    val q = TitleMatch.queryName(c.title)
-                    val res = searched.getOrPut("$type|$q") { runCatching { client.search(type, q) }.getOrDefault(emptyList()) }
-                    pick(res, c)?.let { out[c] = type to it }
-                }
             }
         }
         return out.mapValues { (c, v) ->
@@ -206,6 +230,7 @@ private fun PersonPage(personId: Int, onPick: (type: String, item: VodItem) -> U
     var person by remember { mutableStateOf<TmdbClient.Person?>(null) }
     var owned by remember { mutableStateOf<Map<TmdbClient.Credit, Pair<String, VodItem>>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var checkingMore by remember { mutableStateOf(false) }
     // The cursor starts on the biography and stays there; the titles below are only a press of Down away.
     val fr = remember { FocusRequester() }
     LaunchedEffect(personId) {
@@ -215,7 +240,14 @@ private fun PersonPage(personId: Int, onPick: (type: String, item: VodItem) -> U
         val p = r.getOrNull() ?: return@LaunchedEffect
         person = p
         delay(150); runCatching { fr.requestFocus() }
+        // Stalker: show what's already known on the TV straight away, then add what the portal finds.
+        if (Session.client is StalkerClient) {
+            val quick = withContext(Dispatchers.IO) { runCatching { CastLibrary.match(p.credits, quick = true) }.getOrDefault(emptyMap()) }
+            if (quick.isNotEmpty()) owned = quick
+            checkingMore = true
+        }
         owned = withContext(Dispatchers.IO) { runCatching { CastLibrary.match(p.credits) }.getOrDefault(emptyMap()) }
+        checkingMore = false
     }
     val p = person
     if (p == null) {
@@ -263,7 +295,7 @@ private fun PersonPage(personId: Int, onPick: (type: String, item: VodItem) -> U
             }
         }
         item {
-            Text(if (have == null) "On your service" else "On your service  ·  ${have.size}",
+            Text(if (have == null) "On your service" else "On your service  ·  ${have.size}" + if (checkingMore) "  ·  looking for more…" else "",
                 fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
             Spacer(Modifier.height(8.dp))
             when {

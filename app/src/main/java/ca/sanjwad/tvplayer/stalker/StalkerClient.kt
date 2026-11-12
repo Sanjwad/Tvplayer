@@ -470,6 +470,21 @@ class StalkerClient(
         return if (type == "series") all.filter { it.isSeries } else all
     }
 
+    /** Cast pages: titles already on the TV whose names match exactly (instant, no portal calls). */
+    fun localExact(norms: Collection<String>): Map<String, List<VodItem>> = index?.exact(norms).orEmpty()
+
+    /** The newest-titles list if it's already been fetched (never starts the slow download). */
+    fun cachedCatalogue(type: String): List<VodItem>? = catalogueCache[type]
+
+    /** One quick portal search for an exact title (cast pages ask for many at once, so no fallbacks). */
+    fun quickSearch(type: String, title: String): List<VodItem> {
+        val clean = title.replace(Regex("\\s+"), " ").trim()
+        return runCatching {
+            call(mapOf("type" to type, "action" to "get_ordered_list", "search" to clean, "p" to "1"))
+                .optJSONObject("js")?.optJSONArray("data").mapObjects { toVod(it, type) }
+        }.getOrDefault(emptyList()).filter { relevance(it, clean) <= 2 }
+    }
+
     /** 1 exact title, 2 starts with the search, 3 contains every word, 4 found in the plot, 5 no match. */
     private fun relevance(v: VodItem, query: String): Int {
         val q = TitleMatch.norm(query)

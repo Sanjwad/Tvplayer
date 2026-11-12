@@ -50,6 +50,27 @@ class VodIndex(file: File) {
         db.insertWithOnConflict("meta", null, ContentValues().apply { put("k", k); put("v", v) }, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
+    /** Titles whose name matches exactly (ignoring case and punctuation), keyed by that normalised name. */
+    @Synchronized
+    fun exact(norms: Collection<String>): Map<String, List<VodItem>> {
+        val keys = norms.filter { it.isNotBlank() }.distinct()
+        if (keys.isEmpty()) return emptyMap()
+        val out = mutableMapOf<String, MutableList<VodItem>>()
+        for (chunk in keys.chunked(400)) {
+            val q = chunk.joinToString(",") { "?" }
+            db.rawQuery("SELECT id, name, descr, poster, cmd, series, year, rating, norm FROM vod WHERE norm IN ($q)",
+                chunk.map { " $it " }.toTypedArray()).use { c ->
+                while (c.moveToNext()) {
+                    out.getOrPut(c.getString(8).trim()) { mutableListOf() } += VodItem(
+                        c.getString(0), c.getString(1), c.getString(2).orEmpty(), c.getString(3)?.ifBlank { null },
+                        c.getString(4).orEmpty(), c.getInt(5) == 1, c.getString(6).orEmpty(), c.getString(7).orEmpty(), null,
+                    )
+                }
+            }
+        }
+        return out
+    }
+
     /** Titles containing every word (each matched from the start of a word, punctuation ignored). */
     @Synchronized
     fun search(query: String, limit: Int = 120): List<VodItem> {
