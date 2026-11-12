@@ -571,25 +571,6 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
             }
         }
 
-        // ---- Ad signal check (does the provider pass through ad-break markers?)
-        Spacer(Modifier.height(28.dp))
-        Text("Ad signal check", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Color.White, modifier = w)
-        Text("Watch a live channel through an ad break, then come back here. Lines marked AD mean the provider sends ad-break markers.",
-            fontSize = 14.sp, color = TextDim, modifier = w)
-        Spacer(Modifier.height(8.dp))
-        ca.sanjwad.tvplayer.AdCheck.init(androidx.compose.ui.platform.LocalContext.current)
-        val adVersion = ca.sanjwad.tvplayer.AdCheck.version.intValue
-        val adLines = remember(adVersion) { ca.sanjwad.tvplayer.AdCheck.all().takeLast(40).reversed() }
-        if (adLines.isEmpty()) Text("Nothing recorded yet. Watch some live TV first.", fontSize = 13.sp, color = TextDim, modifier = w)
-        else Column(Modifier.width(900.dp)) {
-            adLines.forEach { line ->
-                Text(line, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    color = if (line.contains(": AD ")) Accent else Color(0xFFB8C0CC))
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        TvButton("Clear results", onClick = { ca.sanjwad.tvplayer.AdCheck.clear() })
-
         // ---- About
         Spacer(Modifier.height(28.dp))
         Text("Sanj TV${if (ca.sanjwad.tvplayer.BuildConfig.TEST_BUILD) " Test" else ""}  ·  build ${ca.sanjwad.tvplayer.BuildConfig.VERSION_CODE}", fontSize = 13.sp, color = TextDim, modifier = w)

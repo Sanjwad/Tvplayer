@@ -333,11 +333,6 @@ class PlayerActivity : ComponentActivity() {
             addView(view)
             addView(overlayView)
         })
-        // Notes any ad-break markers on live channels (listed under Settings > Ad signal check).
-        AdCheck.init(this)
-        player.addListener(AdCheck.listener(player) {
-            if (liveIndex >= 0 && !isCatchup) Session.channels.getOrNull(liveIndex)?.name ?: "Channel" else null
-        })
         player.addListener(object : Player.Listener {
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) { tracksVersion++ }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
