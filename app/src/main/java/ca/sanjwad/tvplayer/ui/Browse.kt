@@ -85,8 +85,10 @@ fun HomeScreen(
     )
     val fr = remember { FocusRequester() }
     LaunchedEffect(Unit) {
-        val vs = when (section) { 1 -> movies; 2 -> series; else -> null }
-        if (vs != null && vs.restoreFocus && !vs.gridMode) {
+        val vs = when (section) { 1 -> movies; 2 -> series; 5 -> SearchMemory.rows; else -> null }
+        if (section == 5 && vs!!.restoreFocus) {
+            // Search puts the cursor back itself (or on the search box).
+        } else if (vs != null && vs.restoreFocus && !vs.gridMode) {
             // Coming back from a title: its row puts the cursor back on it. If that can't happen, use the menu.
             delay(900)
             if (vs.restoreFocus) { vs.restoreFocus = false; runCatching { fr.requestFocus() } }
@@ -644,13 +646,27 @@ private val NoAutoScroll = object : androidx.compose.foundation.gestures.BringIn
 
 // ---------------- search everything ----------------
 
+/** Keeps the last search while a result is open, so Back returns to the same results and title. */
+object SearchMemory {
+    var query = ""
+    var channels: List<ca.sanjwad.tvplayer.stalker.Channel>? = emptyList()
+    var movies: List<VodItem>? = emptyList()
+    var shows: List<VodItem>? = emptyList()
+    /** Movies/TV rows remember their place and the opened tile through this. */
+    val rows = VodState("search")
+    fun reset() { query = ""; channels = emptyList(); movies = emptyList(); shows = emptyList(); rows.rowScroll.clear(); rows.restoreFocus = false }
+}
+
 @Composable
 fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, item: VodItem, seasonId: String?) -> Unit) {
     val ctx = LocalContext.current
-    var query by remember { mutableStateOf("") } // starts empty each time
-    var channels by remember { mutableStateOf<List<ca.sanjwad.tvplayer.stalker.Channel>?>(emptyList()) }
-    var movies by remember { mutableStateOf<List<VodItem>?>(emptyList()) }
-    var shows by remember { mutableStateOf<List<VodItem>?>(emptyList()) }
+    // Empty when Search is picked from the menu; the same as before when coming back from a result.
+    var query by remember { mutableStateOf(SearchMemory.query) }
+    var channels by remember { mutableStateOf(SearchMemory.channels) }
+    var movies by remember { mutableStateOf(SearchMemory.movies) }
+    var shows by remember { mutableStateOf(SearchMemory.shows) }
+    val restoring = remember { SearchMemory.rows.restoreFocus }
+    var skipSearch by remember { mutableStateOf(restoring && SearchMemory.query.isNotBlank()) }
     val fr = remember { FocusRequester() }
     val firstChannel = remember { FocusRequester() }
     val firstMovie = remember { FocusRequester() }
@@ -659,6 +675,8 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
     var wantResults by remember { mutableStateOf(false) }
 
     LaunchedEffect(query) {
+        SearchMemory.query = query
+        if (skipSearch) { skipSearch = false; return@LaunchedEffect } // results are already here
         val q = query.trim()
         if (q.length < 2) { channels = emptyList(); movies = emptyList(); shows = emptyList(); return@LaunchedEffect }
         delay(500)
@@ -673,7 +691,9 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
         shows = withContext(Dispatchers.IO) {
             runCatching { c.search(showType, q).let { l -> if (showType == movieType) l.filter { it.isSeries } else l } }.getOrDefault(emptyList())
         }
+        SearchMemory.rows.rowScroll.clear()
     }
+    SearchMemory.channels = channels; SearchMemory.movies = movies; SearchMemory.shows = shows
     LaunchedEffect(wantResults, channels, movies, shows) {
         if (!wantResults) return@LaunchedEffect
         val target = when {
@@ -686,7 +706,13 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
         delay(80)
         if (runCatching { target.requestFocus() }.isSuccess) wantResults = false
     }
-    LaunchedEffect(Unit) { delay(200); runCatching { fr.requestFocus() } }
+    LaunchedEffect(Unit) {
+        if (restoring) {
+            // The result's row puts the cursor back on it; if it can't, fall back to the search box.
+            delay(900)
+            if (SearchMemory.rows.restoreFocus) { SearchMemory.rows.restoreFocus = false; runCatching { fr.requestFocus() } }
+        } else { delay(200); runCatching { fr.requestFocus() } }
+    }
 
     Column(Modifier.fillMaxSize()) {
         SearchField(query, { query = it; wantResults = false }, "Search channels, movies and TV shows", Modifier.focusRequester(fr),
@@ -735,8 +761,10 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
                     }
                 }
             }
-            item { PosterRow("Movies", movies, {}, { onOpen(movieType, it, null) }, firstItem = Modifier.focusRequester(firstMovie)) }
-            item { PosterRow("TV Shows", shows, {}, { onOpen(showType, it, null) }, firstItem = Modifier.focusRequester(firstShow)) }
+            item { PosterRow("Movies", movies, {}, { onOpen(movieType, it, null) }, firstItem = Modifier.focusRequester(firstMovie),
+                vs = SearchMemory.rows, rowKey = "movies") }
+            item { PosterRow("TV Shows", shows, {}, { onOpen(showType, it, null) }, firstItem = Modifier.focusRequester(firstShow),
+                vs = SearchMemory.rows, rowKey = "shows") }
         }
     }
 }

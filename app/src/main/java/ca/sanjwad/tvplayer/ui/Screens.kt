@@ -217,7 +217,7 @@ fun App() {
                     section = section, onSection = {
                         // Picking Movies/TV Shows again from inside "See all" goes back to its main page, like Back.
                         // Picking Movies or TV Shows in the menu always starts at the top (Trending), first title first.
-                        when (it) { 1 -> movies.backToTop(); 2 -> series.backToTop() }
+                        when (it) { 1 -> movies.backToTop(); 2 -> series.backToTop(); 5 -> SearchMemory.reset() }
                         section = it
                     }, live = live, movies = movies, series = series,
                     onOpen = { type, item, seasonId -> stack.add(DetailReq(type, item, seasonId)) },
