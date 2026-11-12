@@ -231,6 +231,12 @@ private fun PersonPage(personId: Int, onPick: (type: String, item: VodItem) -> U
     var owned by remember { mutableStateOf<Map<TmdbClient.Credit, Pair<String, VodItem>>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var checkingMore by remember { mutableStateOf(false) }
+    // Moving down into a row lands on the first title the first time, and afterwards on the one you
+    // were last on, so the row never jumps sideways just from moving up and down.
+    var ownedAt by remember { mutableStateOf(0) }
+    var otherAt by remember { mutableStateOf(0) }
+    val ownedFr = remember { FocusRequester() }
+    val otherFr = remember { FocusRequester() }
     // The cursor starts on the biography and stays there; the titles below are only a press of Down away.
     val fr = remember { FocusRequester() }
     LaunchedEffect(personId) {
@@ -301,11 +307,11 @@ private fun PersonPage(personId: Int, onPick: (type: String, item: VodItem) -> U
             when {
                 have == null -> Text("Checking your library…", color = TextDim, fontSize = 14.sp)
                 have.isEmpty() -> Text("None of their films or shows are on your service.", color = TextDim, fontSize = 14.sp)
-                else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                else -> LazyRow(Modifier.enterAt(ownedFr, ownedAt < have.size), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     itemsIndexed(have.entries.toList()) { i, (credit, hit) ->
                         Column(Modifier.width(112.dp)) {
-                            PosterTile(hit.second, badge = if (credit.isSeries) "TV" else null,
-                                modifier = Modifier) { onPick(hit.first, hit.second) }
+                            PosterTile(hit.second, onFocus = { ownedAt = i }, badge = if (credit.isSeries) "TV" else null,
+                                modifier = if (i == ownedAt) Modifier.focusRequester(ownedFr) else Modifier) { onPick(hit.first, hit.second) }
                             if (credit.role.isNotBlank()) Text(credit.role, color = TextDim, fontSize = 11.sp, maxLines = 1,
                                 overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 4.dp))
                         }
@@ -318,9 +324,10 @@ private fun PersonPage(personId: Int, onPick: (type: String, item: VodItem) -> U
             Text("Also known for", fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
             Text("Not on your service", fontSize = 13.sp, color = TextDim)
             Spacer(Modifier.height(8.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            LazyRow(Modifier.enterAt(otherFr, otherAt < others.size), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 itemsIndexed(others) { i, c ->
-                    FocusBox(onClick = {}, modifier = Modifier.width(112.dp),
+                    FocusBox(onClick = {}, onFocus = { otherAt = i },
+                        modifier = Modifier.width(112.dp).then(if (i == otherAt) Modifier.focusRequester(otherFr) else Modifier),
                         shape = RoundedCornerShape(8.dp)) {
                         Column(Modifier.padding(4.dp)) {
                             Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(6.dp)).background(Bg)) {
