@@ -400,15 +400,28 @@ private fun money(v: Long): String = when {
 
 private fun runtimeText(min: Int) = if (min >= 60) "${min / 60}h ${min % 60}m" else "${min}m"
 
-/** Opens a YouTube video in the TV's YouTube app (or a browser if that's all there is). */
+/**
+ * Opens a YouTube video straight into playback. The TV YouTube apps ignore "vnd.youtube:" links and
+ * just open their home screen, so ask each app by name with an ordinary watch link first.
+ */
 fun openTrailer(ctx: android.content.Context, key: String) {
-    val tries = listOf("vnd.youtube:$key", "https://www.youtube.com/watch?v=$key")
-    for (u in tries) {
-        try {
-            ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u))
-                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-            return
-        } catch (e: android.content.ActivityNotFoundException) { }
+    val watch = android.net.Uri.parse("https://www.youtube.com/watch?v=$key")
+    fun intent(uri: android.net.Uri, pkg: String?) = android.content.Intent(android.content.Intent.ACTION_VIEW, uri).apply {
+        if (pkg != null) setPackage(pkg)
+        putExtra("force_fullscreen", true); putExtra("finish_on_ended", true)
+        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    val tries = listOf(
+        intent(watch, "com.google.android.youtube.tv"),        // YouTube on Android TV / Google TV / Shield
+        intent(watch, "com.amazon.firetv.youtube"),             // YouTube on Fire TV
+        intent(watch, "com.amazon.firetv.youtube.tv"),
+        intent(watch, "com.liskovsoft.smarttubetv.beta"),       // SmartTube, if that's what's installed
+        intent(watch, "com.liskovsoft.smarttubetv"),
+        intent(watch, "com.google.android.youtube"),            // phone YouTube app
+        intent(watch, null),                                    // anything else that opens YouTube links
+    )
+    for (i in tries) {
+        try { ctx.startActivity(i); return } catch (e: Exception) { }
     }
     android.widget.Toast.makeText(ctx, "Install the YouTube app to watch trailers.", android.widget.Toast.LENGTH_LONG).show()
 }
