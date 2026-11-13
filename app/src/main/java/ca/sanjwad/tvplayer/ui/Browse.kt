@@ -673,6 +673,7 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
     val firstShow = remember { FocusRequester() }
     // Set when the keyboard's search key is pressed: jump to the first result as soon as there is one.
     var wantResults by remember { mutableStateOf(false) }
+    var favVersion by remember { mutableStateOf(0) }
 
     LaunchedEffect(query) {
         SearchMemory.query = query
@@ -727,7 +728,7 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
         Spacer(Modifier.height(14.dp))
         val q = query.trim()
         if (q.length < 2) {
-            CenterMessage("Type or speak at least two letters", "Results from Live TV, Movies and TV Shows appear here.")
+            CenterMessage("Type or speak at least two letters", "Results from Live TV, Movies and TV Shows appear here. Hold OK on a channel to make it a favourite.")
             return@Column
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -742,14 +743,22 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
                         else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(ch.size) { i ->
                                 val c = ch[i]
+                                val fav = favVersion.let { ca.sanjwad.tvplayer.Library.isFavourite(c.id) }
                                 FocusBox(onClick = {
                                     Session.channels = ch
                                     ctx.startActivity(android.content.Intent(ctx, ca.sanjwad.tvplayer.PlayerActivity::class.java).putExtra("live_index", i))
+                                }, onLongClick = {
+                                    // Hold OK on a channel to add it to (or remove it from) favourites.
+                                    ca.sanjwad.tvplayer.Library.toggleFavourite(c); favVersion++
+                                    val now = ca.sanjwad.tvplayer.Library.isFavourite(c.id)
+                                    android.widget.Toast.makeText(ctx, if (now) "★  ${c.name} added to favourites" else "${c.name} removed from favourites",
+                                        android.widget.Toast.LENGTH_SHORT).show()
                                 }, modifier = (if (i == 0) Modifier.focusRequester(firstChannel) else Modifier).width(150.dp), shape = RoundedCornerShape(8.dp)) {
                                     Column(Modifier.padding(8.dp)) {
                                         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(6.dp)).background(Bg)) {
                                             AsyncImage(model = c.logo, contentDescription = null, modifier = Modifier.fillMaxSize().padding(10.dp),
                                                 contentScale = ContentScale.Fit)
+                                            if (fav) Text("★", Modifier.align(Alignment.TopEnd).padding(4.dp), fontSize = 18.sp, color = Gold)
                                         }
                                         Spacer(Modifier.height(4.dp))
                                         Text((if (c.number > 0) "${c.number}  " else "") + c.name, fontSize = 12.sp, color = Color.White,

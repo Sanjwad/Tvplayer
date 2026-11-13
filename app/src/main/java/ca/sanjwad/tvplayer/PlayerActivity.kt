@@ -655,6 +655,22 @@ class PlayerActivity : ComponentActivity() {
             (event.keyCode == KeyEvent.KEYCODE_MEDIA_PLAY || event.keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)) {
             closeOverlay(); if (liveIndex >= 0) playLive(liveIndex) else player.play(); return true
         }
+        // Live TV: hold OK to add or remove this channel from favourites. A short press works as before.
+        val ok = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER
+        if (ok && liveIndex >= 0 && overlay == null && (okHeld != null || !view.isControllerFullyVisible)) {
+            when {
+                event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 -> { okHeld = KeyEvent(event); okLong = false; return true }
+                event.action == KeyEvent.ACTION_DOWN -> {
+                    if (!okLong && event.eventTime - event.downTime >= 600) { okLong = true; toggleLiveFavourite() }
+                    return true
+                }
+                event.action == KeyEvent.ACTION_UP -> {
+                    val down = okHeld; okHeld = null
+                    if (!okLong && down != null) { super.dispatchKeyEvent(down); super.dispatchKeyEvent(event) }
+                    return true
+                }
+            }
+        }
         if (liveIndex >= 0 && overlay == null && event.action == KeyEvent.ACTION_DOWN && !view.isControllerFullyVisible) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> {
@@ -666,6 +682,16 @@ class PlayerActivity : ComponentActivity() {
             }
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    private var okHeld: KeyEvent? = null
+    private var okLong = false
+
+    private fun toggleLiveFavourite() {
+        val ch = Session.channels.getOrNull(liveIndex) ?: return
+        Library.toggleFavourite(ch)
+        val msg = if (Library.isFavourite(ch.id)) "★  ${ch.name} added to favourites" else "${ch.name} removed from favourites"
+        android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show()
     }
 
     /** Short, readable reason for a dropped connection, e.g. "HTTP 416" or "SocketTimeoutException". */

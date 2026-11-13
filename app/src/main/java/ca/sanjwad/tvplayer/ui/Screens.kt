@@ -742,7 +742,7 @@ private const val FAV_ID = "__fav"
 private const val CATCHUP_ID = "__catchup"
 private const val LIST_ID = "__list"
 private const val EDIT_ID = "__edit"
-private val Gold = Color(0xFFFFC94D)
+val Gold = Color(0xFFFFC94D)
 
 @Composable
 fun SearchField(query: String, onChange: (String) -> Unit, hint: String, modifier: Modifier = Modifier, onSearch: (() -> Unit)? = null) {
