@@ -368,7 +368,8 @@ object TitleMatch {
 
     /** A search-friendly show name: drops "EN | ", brackets, years and "S01E02" bits. */
     fun queryName(t: String): String = t
-        .replace(Regex("^\\s*[A-Za-z]{2,4}\\s*[|:\\-]\\s*"), "")
+        // Provider prefixes like "EN - " or "FR| " (capitals only, so "Dune: Part Two" keeps "Dune").
+        .replace(Regex("^\\s*[A-Z]{2,4}\\s*[|:\\-]\\s*"), "")
         .replace(Regex("\\(.*?\\)|\\[.*?\\]"), " ")
         .replace(Regex("\\bS\\d{1,2}\\s*E\\d{1,3}\\b", RegexOption.IGNORE_CASE), " ")
         .replace(Regex("\\b(19|20)\\d{2}\\s*$"), " ")

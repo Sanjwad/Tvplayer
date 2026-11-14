@@ -168,9 +168,16 @@ private fun CastList(nav: CastNav, onPerson: (Int) -> Unit) {
     LaunchedEffect(nav) {
         val tmdb = Session.tmdb
         if (tmdb == null) { error = "Cast needs a TMDB key (Settings)."; cast = emptyList(); return@LaunchedEffect }
-        val r = withContext(Dispatchers.IO) { runCatching { tmdb.cast(nav.title, nav.year, nav.isSeries) } }
-        r.onSuccess { cast = it; if (it.isEmpty()) error = "Couldn't find the cast for this title." }
-            .onFailure { error = it.message; cast = emptyList() }
+        val r = withContext(Dispatchers.IO) {
+            runCatching {
+                tmdb.cast(nav.title, nav.year, nav.isSeries).ifEmpty {
+                    (if (nav.year.isNotBlank()) tmdb.cast(nav.title, "", nav.isSeries) else emptyList())
+                        .ifEmpty { tmdb.cast(nav.title, nav.year, !nav.isSeries) }
+                }
+            }
+        }
+        r.onSuccess { cast = it; if (it.isEmpty()) error = "Couldn't find the cast for \"${nav.title}\"" + (if (nav.year.isNotBlank()) " (${nav.year})" else "") + " on TMDB." }
+            .onFailure { error = "Couldn't reach TMDB: " + (it.message ?: it.javaClass.simpleName); cast = emptyList() }
     }
     LaunchedEffect(cast) { if (!cast.isNullOrEmpty()) { delay(150); runCatching { fr.requestFocus() } } }
 
@@ -455,9 +462,18 @@ fun AboutPage(nav: AboutNav, onClose: () -> Unit, onCast: () -> Unit, onPick: (t
 
     LaunchedEffect(nav) {
         val tmdb = Session.tmdb ?: run { failed = "This needs a TMDB key (Settings)."; return@LaunchedEffect }
-        val a = withContext(Dispatchers.IO) { runCatching { tmdb.about(nav.title, nav.year, nav.isSeries) } }
-            .onFailure { failed = it.message }.getOrNull()
-        if (a == null) { if (failed == null) failed = "Couldn't find this title on TMDB."; return@LaunchedEffect }
+        val a = withContext(Dispatchers.IO) {
+            runCatching {
+                // Try as listed, then without the year (providers sometimes have it wrong), then as the other kind.
+                tmdb.about(nav.title, nav.year, nav.isSeries)
+                    ?: (if (nav.year.isNotBlank()) tmdb.about(nav.title, "", nav.isSeries) else null)
+                    ?: tmdb.about(nav.title, nav.year, !nav.isSeries)
+            }
+        }.onFailure { failed = "Couldn't reach TMDB: " + (it.message ?: it.javaClass.simpleName) }.getOrNull()
+        if (a == null) {
+            if (failed == null) failed = "Couldn't find \"${nav.title}\"" + (if (nav.year.isNotBlank()) " (${nav.year})" else "") + " on TMDB."
+            return@LaunchedEffect
+        }
         about = a
         delay(150); runCatching { fr.requestFocus() }
         kotlinx.coroutines.coroutineScope {
