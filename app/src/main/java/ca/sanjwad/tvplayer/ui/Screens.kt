@@ -1269,9 +1269,13 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
             Spacer(Modifier.width(28.dp))
             Column(Modifier.weight(1f)) {
                 Text(item.name, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
-                if (item.year.isNotBlank()) {
+                // Year, then the language (if it isn't English) and the provider's section it's filed under.
+                val lang = ca.sanjwad.tvplayer.stalker.Lang.badge(item)?.let { ca.sanjwad.tvplayer.stalker.Lang.name(it) }
+                val meta = listOfNotNull(item.year.ifBlank { null }, lang?.let { "$it audio" },
+                    item.group.ifBlank { null }?.let { "from $it" }).joinToString("   ·   ")
+                if (meta.isNotBlank()) {
                     Spacer(Modifier.height(4.dp))
-                    Text(item.year, fontSize = 15.sp, color = TextDim)
+                    Text(meta, fontSize = 15.sp, color = if (lang != null) Color(0xFFE8EDF3) else TextDim)
                 }
                 RatingPills(item)
                 if (item.description.isNotBlank()) {

@@ -261,6 +261,13 @@ fun PosterTile(item: VodItem, onFocus: () -> Unit = {}, badge: String? = null, m
                 AsyncImage(model = item.poster, contentDescription = item.name,
                     modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 RatingBadge(item, Modifier.align(Alignment.BottomEnd))
+                // Titles that aren't in English get a language tag (FR, ES…) in the top-right corner.
+                val lang = remember(item) { ca.sanjwad.tvplayer.stalker.Lang.badge(item) }
+                if (lang != null) {
+                    Text(lang, Modifier.align(Alignment.TopEnd).padding(5.dp)
+                        .clip(RoundedCornerShape(4.dp)).background(Color(0xE6FFFFFF)).padding(horizontal = 6.dp, vertical = 2.dp),
+                        color = Color(0xFF0A101E), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
                 if (badge != null) {
                     Text(badge, Modifier.align(Alignment.TopStart).padding(5.dp)
                         .clip(RoundedCornerShape(4.dp)).background(Accent).padding(horizontal = 6.dp, vertical = 2.dp),

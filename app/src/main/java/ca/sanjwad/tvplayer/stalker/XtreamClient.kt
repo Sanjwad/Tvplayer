@@ -432,7 +432,7 @@ class XtreamClient(
             val a = JSONArray()
             items.forEach {
                 a.put(JSONArray().put(it.id).put(it.name).put(it.poster ?: "").put(it.cmd).put(if (it.isSeries) 1 else 0)
-                    .put(it.year).put(it.rating).put(it.backdrop ?: "").put(it.description))
+                    .put(it.year).put(it.rating).put(it.backdrop ?: "").put(it.description).put(it.group))
             }
             f.writeText(a.toString())
         }
@@ -447,7 +447,7 @@ class XtreamClient(
                 VodItem(
                     id = r.getString(0), name = r.getString(1), poster = r.optString(2).ifBlank { null },
                     cmd = r.optString(3), isSeries = r.optInt(4) == 1, year = r.optString(5), rating = r.optString(6),
-                    backdrop = r.optString(7).ifBlank { null }, description = r.optString(8),
+                    backdrop = r.optString(7).ifBlank { null }, description = r.optString(8), group = r.optString(9),
                 )
             }
         }.getOrNull()
@@ -506,16 +506,19 @@ class XtreamClient(
         // One download per list at a time, so repeated searches or quick scrolling don't pile up.
         synchronized(fetchLocks.getOrPut(key) { Any() }) {
             synchronized(listCache) { listCache[key]?.let { return it } }
-            val file = cacheFile("list_$key")
+            val file = cacheFile("list2_$key") // list2: also keeps each title's category
             readItems(file, maxAgeMs = 12 * HOUR)?.let { cached ->
                 synchronized(listCache) { listCache[key] = cached }
                 return cached
             }
             val all = categoryId == "*"
             val cat: Array<Pair<String, String>> = if (all) emptyArray() else arrayOf("category_id" to categoryId)
+            // Category names, so a title can show which section (and so which language) it's filed under.
+            val catNames = runCatching { browseCategories(if (type == "series") "series" else "movies").second.associate { it.id to it.title } }
+                .getOrDefault(emptyMap())
             val list = if (type == "series") {
-                val fields = if (all) setOf("series_id", "name", "cover", "year", "releaseDate", "rating")
-                else setOf("series_id", "name", "cover", "plot", "year", "releaseDate", "rating", "backdrop_path")
+                val fields = if (all) setOf("series_id", "name", "cover", "year", "releaseDate", "rating", "category_id")
+                else setOf("series_id", "name", "cover", "plot", "year", "releaseDate", "rating", "backdrop_path", "category_id")
                 streamObjects("action" to "get_series", *cat, fields = fields).mapNotNull {
                     val id = it.s("series_id").ifEmpty { return@mapNotNull null }
                     VodItem(
@@ -523,11 +526,11 @@ class XtreamClient(
                         poster = it.im("cover"), cmd = "", isSeries = true,
                         year = it.s("year").ifEmpty { it.s("releaseDate").take(4) },
                         rating = it.s("rating").takeIf { r -> r != "0" }.orEmpty(),
-                        backdrop = it.im("backdrop_path"),
+                        backdrop = it.im("backdrop_path"), group = catNames[it.s("category_id")].orEmpty(),
                     )
                 }
             } else {
-                val fields = setOf("stream_id", "name", "stream_icon", "container_extension", "year", "rating")
+                val fields = setOf("stream_id", "name", "stream_icon", "container_extension", "year", "rating", "category_id")
                 streamObjects("action" to "get_vod_streams", *cat, fields = fields).mapNotNull {
                     val id = it.s("stream_id").ifEmpty { return@mapNotNull null }
                     val ext = it.s("container_extension").ifEmpty { "mp4" }
@@ -536,6 +539,7 @@ class XtreamClient(
                         poster = it.im("stream_icon"), cmd = "$root/movie/$user/$pass/$id.$ext",
                         isSeries = false, year = it.s("year"),
                         rating = it.s("rating").takeIf { r -> r != "0" }.orEmpty(),
+                        group = catNames[it.s("category_id")].orEmpty(),
                     )
                 }
             }
@@ -595,6 +599,8 @@ class XtreamClient(
             rating = item.rating.ifBlank { info.str("rating").takeIf { it != "0" }.orEmpty() },
             poster = item.poster ?: info.img("movie_image"),
             backdrop = item.backdrop ?: firstImage(info.opt("backdrop_path")),
+            // Many servers report the file's audio language (from scanning the file).
+            audioLang = item.audioLang.ifBlank { Lang.audioName(info.optJSONObject("audio")?.optJSONObject("tags")?.optString("language").orEmpty()) },
         )
     }
 
