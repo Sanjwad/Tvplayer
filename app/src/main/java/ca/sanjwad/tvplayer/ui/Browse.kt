@@ -914,7 +914,15 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
                     VodItem(id = p.key, name = if (p.subtitle.isNotBlank() && p.seriesId != null) "${p.title} · ${p.subtitle}" else p.title,
                         description = p.subtitle, poster = p.poster, cmd = p.cmd, isSeries = false, year = "", rating = "")
                 }
-                PosterRow("▶  Continue watching", tiles, {},
+                // Moving along this row shows the title at the top, like every other row.
+                PosterRow("▶  Continue watching", tiles, { v ->
+                    byKey[v.id]?.let { p ->
+                        val series = p.seriesId != null
+                        setHero(VodItem(id = p.seriesId ?: p.key.removePrefix("m:"), name = p.title,
+                            description = if (series) p.subtitle else "", poster = p.poster, cmd = p.cmd, isSeries = series,
+                            year = if (series) "" else p.subtitle, rating = ""))
+                    }
+                },
                     onOpen = { v -> byKey[v.id]?.let { menuFor = it } },
                     badgeFor = { v -> byKey[v.id]?.let { "${((it.durMs - it.posMs) / 60_000).coerceAtLeast(1)}m left" } })
             }
