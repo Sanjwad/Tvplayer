@@ -838,7 +838,12 @@ class StalkerClient(
         return directUrl(raw).also { if (it == null) lastLinkReply = js?.toString()?.take(100) ?: "(empty reply)" }
     }
 
+    /** Set once a link has passed the check: later plays skip the check and start straight away. */
+    @Volatile private var provenUa: String? = null
+
     private fun playFiles(movieId: String, seasonId: String, episodeId: String, skip: String, log: MutableList<String>): String? {
+        val t0 = System.currentTimeMillis()
+        fun secs() = String.format(java.util.Locale.US, "%.1fs", (System.currentTimeMillis() - t0) / 1000.0)
         val rows = runCatching {
             allPages(mapOf("type" to "vod", "action" to "get_ordered_list", "movie_id" to movieId,
                 "season_id" to seasonId, "episode_id" to episodeId), maxPages = 2)
@@ -892,7 +897,8 @@ class StalkerClient(
         if (tries.isEmpty()) { log += "• file list: (none)"; PortalLog.pinned = listOf("PLAY: no video files listed"); return null }
 
         watchdog(force = true)
-        val summary = mutableListOf("PLAY $movieId/$seasonId/$episodeId — tried in order (watchdog sent, IPv4 first):")
+        val summary = mutableListOf("PLAY $movieId/$seasonId/$episodeId — tried in order (watchdog sent, IPv4 first):",
+            "  file list + watchdog took ${secs()}")
         var firstUrl: String? = null
         val seen = HashSet<String>()
         for ((name, get) in tries) {
@@ -900,14 +906,22 @@ class StalkerClient(
             if (u == null) { summary += "  $name → portal gave no link: $lastLinkReply"; continue }
             if (!seen.add(u)) { summary += "  $name → same link as before"; continue }
             if (firstUrl == null) firstUrl = u
-            summary += "  $name → ${u.take(70)}"
-            reportPlay(u, movieId)
+            summary += "  $name → ${u.take(70)}  [${secs()}]"
+            // Telling the portal what's playing doesn't need to hold up the start.
+            Thread { reportPlay(u, movieId) }.apply { isDaemon = true }.start()
+            provenUa?.let { ua ->
+                videoUa = ua
+                summary += "  ✓ using $name (links like this worked before, so not checked)  [${secs()}]"
+                PortalLog.pinned = summary
+                summary.forEach { PortalLog.add(it) }
+                return u
+            }
             // Same link, different identities: the video server may only let some players in.
             for ((uaName, ua) in uaCandidates) {
                 val (ok, res) = probe(u, ua)
-                summary += "     as $uaName ⇒ $res"
+                summary += "     as $uaName ⇒ $res  [${secs()}]"
                 if (ok) {
-                    videoUa = ua
+                    videoUa = ua; provenUa = ua
                     summary += "  ✓ using $name as $uaName"
                     PortalLog.pinned = summary
                     summary.forEach { PortalLog.add(it) }
