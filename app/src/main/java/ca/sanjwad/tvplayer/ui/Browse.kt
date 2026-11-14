@@ -653,6 +653,21 @@ private val NoAutoScroll = object : androidx.compose.foundation.gestures.BringIn
 
 // ---------------- search everything ----------------
 
+/** Recent searches (newest first), kept on the TV so a search never has to be typed twice. */
+object SearchHistory {
+    private const val MAX = 12
+    private fun prefs(ctx: android.content.Context) = ctx.getSharedPreferences("search_history", 0)
+    fun load(ctx: android.content.Context): List<String> =
+        prefs(ctx).getString("list", "").orEmpty().split('\n').filter { it.isNotBlank() }
+    /** Remembered when a result is actually opened, so half-typed searches don't clutter the list. */
+    fun add(ctx: android.content.Context, q: String) {
+        val t = q.trim(); if (t.length < 2) return
+        val list = (listOf(t) + load(ctx).filterNot { it.equals(t, ignoreCase = true) }).take(MAX)
+        prefs(ctx).edit().putString("list", list.joinToString("\n")).apply()
+    }
+    fun clear(ctx: android.content.Context) = prefs(ctx).edit().remove("list").apply()
+}
+
 /** Keeps the last search while a result is open, so Back returns to the same results and title. */
 object SearchMemory {
     var query = ""
@@ -681,6 +696,7 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
     // Set when the keyboard's search key is pressed: jump to the first result as soon as there is one.
     var wantResults by remember { mutableStateOf(false) }
     var favVersion by remember { mutableStateOf(0) }
+    var history by remember { mutableStateOf(SearchHistory.load(ctx)) }
 
     LaunchedEffect(query) {
         SearchMemory.query = query
@@ -735,7 +751,26 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
         Spacer(Modifier.height(14.dp))
         val q = query.trim()
         if (q.length < 2) {
-            CenterMessage("Type or speak at least two letters", "Results from Live TV, Movies and TV Shows appear here. Hold OK on a channel to make it a favourite.")
+            if (history.isEmpty()) {
+                CenterMessage("Type or speak at least two letters", "Results from Live TV, Movies and TV Shows appear here. Hold OK on a channel to make it a favourite.")
+            } else {
+                Text("Recent searches", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White, modifier = Modifier.padding(start = 4.dp))
+                Spacer(Modifier.height(8.dp))
+                androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(history.size) { i ->
+                        FocusBox(onClick = { query = history[i]; wantResults = true }, shape = RoundedCornerShape(24.dp)) {
+                            Text("🕘  " + history[i], Modifier.padding(horizontal = 18.dp, vertical = 10.dp), fontSize = 16.sp, color = Color.White)
+                        }
+                    }
+                    item {
+                        FocusBox(onClick = { SearchHistory.clear(ctx); history = emptyList() }, shape = RoundedCornerShape(24.dp)) {
+                            Text("Clear", Modifier.padding(horizontal = 18.dp, vertical = 10.dp), fontSize = 16.sp, color = TextDim)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Text("Hold OK on a channel in the results to make it a favourite.", fontSize = 13.sp, color = TextDim, modifier = Modifier.padding(start = 4.dp))
+            }
             return@Column
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -753,6 +788,7 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
                                 val fav = favVersion.let { ca.sanjwad.tvplayer.Library.isFavourite(c.id) }
                                 FocusBox(onClick = {
                                     Session.channels = ch
+                                    SearchHistory.add(ctx, query)
                                     ctx.startActivity(android.content.Intent(ctx, ca.sanjwad.tvplayer.PlayerActivity::class.java).putExtra("live_index", i))
                                 }, onLongClick = {
                                     // Hold OK on a channel to add it to (or remove it from) favourites.
@@ -777,9 +813,9 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
                     }
                 }
             }
-            item { PosterRow("Movies", movies, {}, { onOpen(movieType, it, null) }, firstItem = Modifier.focusRequester(firstMovie),
+            item { PosterRow("Movies", movies, {}, { SearchHistory.add(ctx, query); onOpen(movieType, it, null) }, firstItem = Modifier.focusRequester(firstMovie),
                 vs = SearchMemory.rows, rowKey = "movies") }
-            item { PosterRow("TV Shows", shows, {}, { onOpen(showType, it, null) }, firstItem = Modifier.focusRequester(firstShow),
+            item { PosterRow("TV Shows", shows, {}, { SearchHistory.add(ctx, query); onOpen(showType, it, null) }, firstItem = Modifier.focusRequester(firstShow),
                 vs = SearchMemory.rows, rowKey = "shows") }
         }
     }
