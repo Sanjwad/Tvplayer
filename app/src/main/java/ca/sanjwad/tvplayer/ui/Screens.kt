@@ -347,11 +347,24 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
         )
         Spacer(Modifier.height(10.dp))
+        // Like TiVimate: this TV gets its own MAC address, ready to give to the provider to register.
+        LaunchedEffect(Unit) { if (stMac.isBlank()) stMac = prefs.deviceMac }
         TvTextField(
             value = stMac, onValueChange = { stMac = it.trim() },
             label = { Text("MAC address (00:1A:79:…)") }, singleLine = true, modifier = w,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
         )
+        Spacer(Modifier.height(6.dp))
+        Row(w, verticalAlignment = Alignment.CenterVertically) {
+            Text("This TV's own MAC address is ", fontSize = 14.sp, color = TextDim)
+            Text(prefs.deviceMac, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Text(". Give it to your provider to set up, or type the one they gave you.", fontSize = 14.sp, color = TextDim,
+                modifier = Modifier.weight(1f))
+            if (stMac != prefs.deviceMac) {
+                Spacer(Modifier.width(10.dp))
+                TvButton("Use it", onClick = { stMac = prefs.deviceMac })
+            }
+        }
         Spacer(Modifier.height(10.dp))
         FocusBox(onClick = { stMore = !stMore }, modifier = w, shape = RoundedCornerShape(8.dp)) {
             Text((if (stMore) "▲ " else "▼ ") + "Serial number and device ID (only if your provider asks)",

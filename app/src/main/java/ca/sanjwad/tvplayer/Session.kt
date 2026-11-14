@@ -85,6 +85,14 @@ class Prefs(ctx: Context) {
     var stMac: String
         get() = sp.getString("st_mac", "").orEmpty()
         set(v) = sp.edit().putString("st_mac", v).apply()
+    /** A MAC address made up once for this TV (MAG-style 00:1A:79:…), for providers who register one. */
+    val deviceMac: String
+        get() = sp.getString("device_mac", null) ?: run {
+            val r = java.security.SecureRandom()
+            val mac = "00:1A:79:" + (1..3).joinToString(":") { "%02X".format(r.nextInt(256)) }
+            sp.edit().putString("device_mac", mac).apply()
+            mac
+        }
     var stSerial: String
         get() = sp.getString("st_serial", "").orEmpty()
         set(v) = sp.edit().putString("st_serial", v).apply()
