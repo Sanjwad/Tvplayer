@@ -922,6 +922,9 @@ class StalkerClient(
         return firstUrl
     }
 
+    /** This portal only plays movies when asked for the file itself (learned on the first movie played). */
+    @Volatile private var moviesNeedFiles = false
+
     override fun createLink(type: String, cmd: String, series: String, movieId: String?): String {
         val log = mutableListOf<String>()
 
@@ -936,14 +939,15 @@ class StalkerClient(
         }
 
         val t = if (type == "series") "vod" else type
+        // Once a movie has only played by asking for its file directly, go straight to that next time
+        // instead of first waiting on a request this portal is known to refuse.
+        val movieFileId = if (t == "vod" && series.isBlank()) movieId ?: Regex("/media/(\\d+)\\.mpg").find(cmd)?.groupValues?.get(1) else null
+        if (movieFileId != null && moviesNeedFiles) playFiles(movieFileId, "0", "0", cmd, log)?.let { return it }
         requestLink(t, cmd, series, log)?.let { return it }
         // Portals differ on episodes: some want the episode number, some only the episode's own cmd.
         if (series.isNotBlank()) requestLink(t, cmd, "", log)?.let { return it }
 
-        if (t == "vod" && series.isBlank()) {
-            val id = movieId ?: Regex("/media/(\\d+)\\.mpg").find(cmd)?.groupValues?.get(1)
-            if (id != null) playFiles(id, "0", "0", cmd, log)?.let { return it }
-        }
+        if (movieFileId != null && !moviesNeedFiles) playFiles(movieFileId, "0", "0", cmd, log)?.let { moviesNeedFiles = true; return it }
         // Episodes from a portal's own series section may need type=series instead.
         if (type == "series" || series.isNotBlank()) {
             requestLink("series", cmd, series, log)?.let { return it }
