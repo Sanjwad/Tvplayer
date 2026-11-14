@@ -366,17 +366,28 @@ object TitleMatch {
     private val nonAlnum = Regex("[^a-z0-9]+")
     private val yearInName = Regex("\\((\\d{4})\\)|\\b(19|20)\\d{2}\\b$")
 
+    private val capsPrefix = Regex("^\\s*[A-Z]{2,4}\\s*[|:\\-]\\s*")
+    /** " - ENGLISH | OLD COLLECTION", " - 4K": a dash or bar followed only by capitals, digits and symbols. */
+    private val capsTail = Regex("\\s+[-|–]\\s+[^a-z]*$")
+
+    /** Drops provider tags around a name: "EN | Uncle Buck - ENGLISH | OLD COLLECTION" → "Uncle Buck". */
+    fun stripTags(t: String): String {
+        var s = t.replace(capsPrefix, "")
+        s = s.replace(capsTail, "")
+        // Anything after a spaced bar is a provider note ("Title | Old collection").
+        s = s.substringBefore(" | ")
+        return s.trim().ifBlank { t.trim() }
+    }
+
     /** A search-friendly show name: drops "EN | ", brackets, years and "S01E02" bits. */
-    fun queryName(t: String): String = t
-        // Provider prefixes like "EN - " or "FR| " (capitals only, so "Dune: Part Two" keeps "Dune").
-        .replace(Regex("^\\s*[A-Z]{2,4}\\s*[|:\\-]\\s*"), "")
+    fun queryName(t: String): String = stripTags(t)
         .replace(Regex("\\(.*?\\)|\\[.*?\\]"), " ")
         .replace(Regex("\\bS\\d{1,2}\\s*E\\d{1,3}\\b", RegexOption.IGNORE_CASE), " ")
         .replace(Regex("\\b(19|20)\\d{2}\\s*$"), " ")
         .replace(Regex("\\s+en\\s*-\\s*all\\b.*$", RegexOption.IGNORE_CASE), " ")
         .replace(Regex("\\s+"), " ").trim()
 
-    fun norm(t: String): String = t.lowercase()
+    fun norm(t: String): String = stripTags(t).lowercase()
         .replace(prefix, "").replace(brackets, " ").replace(noise, " ")
         .replace("&", " and ").replace(nonAlnum, " ").trim()
         .removePrefix("the ").trim()
