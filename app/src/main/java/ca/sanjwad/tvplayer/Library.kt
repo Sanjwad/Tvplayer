@@ -32,15 +32,15 @@ object Library {
     // ---------- sync bookkeeping ----------
     /** When each entry last changed on this TV ("fav:<id>", "list:<id>", "watch:<id>", "prog:<key>", "hidden:<section>"). */
     private var stamps = mutableMapOf<String, Long>()
-    /** Called after any change, so [Sync] can upload it. */
-    var onChange: (() -> Unit)? = null
+    /** Called after any change, so [Sync] can upload it. minor = just the resume point moving on. */
+    var onChange: ((minor: Boolean) -> Unit)? = null
 
-    private fun touch(vararg ids: String) {
+    private fun touch(vararg ids: String, minor: Boolean = false) {
         val now = System.currentTimeMillis()
         ids.forEach { stamps[it] = now }
         val o = JSONObject(); stamps.forEach { (k, v) -> o.put(k, v) }
         sp?.edit()?.putString("stamps_$key", o.toString())?.apply()
-        onChange?.invoke()
+        onChange?.invoke(minor)
     }
 
     var favourites by mutableStateOf<List<Channel>>(emptyList())
@@ -70,7 +70,9 @@ object Library {
         val before = progress[p.key]
         progress = if (done || p.posMs < 30_000) progress - p.key else progress + (p.key to p)
         writeProgress()
-        if (before != null || progress[p.key] != null) touch("prog:${p.key}")
+        // The resume point is saved every 15 seconds while watching; that alone shouldn't upload each time.
+        val minor = before != null && progress[p.key] != null
+        if (before != null || progress[p.key] != null) touch("prog:${p.key}", minor = minor)
     }
 
     private fun writeProgress() {

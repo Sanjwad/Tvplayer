@@ -40,9 +40,11 @@ object Sync {
         // "Family" keeps the original key, so TVs set up before sync names existed stay together.
         val name = prefs.syncName.trim().lowercase()
         householdKey = sha256("sanjtv-sync-v1|$secret" + if (name == "family") "" else "|name:$name")
-        Library.onChange = { schedule(5) }
+        // Real changes (lists, favourites, watched) go up in 5 seconds. A resume point moving on while
+        // you watch waits for the next regular sync, so watching a film costs a handful of uploads, not hundreds.
+        Library.onChange = { minor -> if (!minor) schedule(5) }
         poller?.cancel(false)
-        poller = worker.scheduleWithFixedDelay({ runOnce() }, 0, 3, TimeUnit.MINUTES)
+        poller = worker.scheduleWithFixedDelay({ runOnce() }, 0, 5, TimeUnit.MINUTES)
     }
 
     /** Stop syncing on this TV (lists stay as they are here). */
