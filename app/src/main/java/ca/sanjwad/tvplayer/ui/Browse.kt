@@ -76,6 +76,7 @@ fun HomeScreen(
     live: LiveState, movies: VodState, series: VodState,
     onOpen: (type: String, item: VodItem, seasonId: String?) -> Unit,
     onSettings: () -> Unit,
+    onPerson: (Int) -> Unit = {},
 ) {
     // (label, section id) — ids stay stable so saved state keeps working.
     val entries = listOf(
@@ -161,7 +162,7 @@ fun HomeScreen(
                     0 -> LiveScreen(live)
                     1 -> VodTab(movies) { onOpen(movies.type, it, null) }
                     2 -> VodTab(series) { onOpen(series.type, it, null) }
-                    5 -> GlobalSearch(movies.type, series.type, onOpen)
+                    5 -> GlobalSearch(movies.type, series.type, onOpen, onPerson)
                     else -> MyListScreen(onOpen)
                 }
             }
@@ -653,6 +654,31 @@ private val NoAutoScroll = object : androidx.compose.foundation.gestures.BringIn
 
 // ---------------- search everything ----------------
 
+/** Search results for actors and directors: photo, name and what they're known for. */
+@Composable
+private fun PeopleRow(people: List<ca.sanjwad.tvplayer.stalker.TmdbClient.PersonHit>?, onPick: (Int) -> Unit) {
+    if (people != null && people.isEmpty()) return  // no row at all when nobody matches
+    Column {
+        Text("People", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
+        if (people == null) { Text("Searching…", fontSize = 14.sp, color = TextDim, modifier = Modifier.padding(start = 4.dp)); return@Column }
+        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(people.size) { i ->
+                val p = people[i]
+                FocusBox(onClick = { onPick(p.id) }, modifier = Modifier.width(120.dp), shape = RoundedCornerShape(10.dp)) {
+                    Column(Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        AsyncImage(model = p.photo, contentDescription = null, contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(96.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Bg))
+                        Spacer(Modifier.height(6.dp))
+                        Text(p.name, fontSize = 13.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (p.knownFor.isNotBlank())
+                            Text(p.knownFor, fontSize = 11.sp, color = TextDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** Recent searches (newest first), kept on the TV so a search never has to be typed twice. */
 object SearchHistory {
     private const val MAX = 12
@@ -674,19 +700,22 @@ object SearchMemory {
     var channels: List<ca.sanjwad.tvplayer.stalker.Channel>? = emptyList()
     var movies: List<VodItem>? = emptyList()
     var shows: List<VodItem>? = emptyList()
+    var people: List<ca.sanjwad.tvplayer.stalker.TmdbClient.PersonHit>? = emptyList()
     /** Movies/TV rows remember their place and the opened tile through this. */
     val rows = VodState("search")
-    fun reset() { query = ""; channels = emptyList(); movies = emptyList(); shows = emptyList(); rows.rowScroll.clear(); rows.restoreFocus = false }
+    fun reset() { query = ""; channels = emptyList(); movies = emptyList(); shows = emptyList(); people = emptyList(); rows.rowScroll.clear(); rows.restoreFocus = false }
 }
 
 @Composable
-fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, item: VodItem, seasonId: String?) -> Unit) {
+fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, item: VodItem, seasonId: String?) -> Unit,
+                 onPerson: (Int) -> Unit = {}) {
     val ctx = LocalContext.current
     // Empty when Search is picked from the menu; the same as before when coming back from a result.
     var query by remember { mutableStateOf(SearchMemory.query) }
     var channels by remember { mutableStateOf(SearchMemory.channels) }
     var movies by remember { mutableStateOf(SearchMemory.movies) }
     var shows by remember { mutableStateOf(SearchMemory.shows) }
+    var people by remember { mutableStateOf(SearchMemory.people) }
     val restoring = remember { SearchMemory.rows.restoreFocus }
     var skipSearch by remember { mutableStateOf(restoring && SearchMemory.query.isNotBlank()) }
     val fr = remember { FocusRequester() }
@@ -702,9 +731,13 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
         SearchMemory.query = query
         if (skipSearch) { skipSearch = false; return@LaunchedEffect } // results are already here
         val q = query.trim()
-        if (q.length < 2) { channels = emptyList(); movies = emptyList(); shows = emptyList(); return@LaunchedEffect }
+        if (q.length < 2) { channels = emptyList(); movies = emptyList(); shows = emptyList(); people = emptyList(); return@LaunchedEffect }
         delay(500)
-        channels = null; movies = null; shows = null
+        channels = null; movies = null; shows = null; people = null
+        // Actors and directors by name (from TMDB), so "John Candy" finds his films without knowing one first.
+        launch {
+            people = withContext(Dispatchers.IO) { runCatching { Session.tmdb?.searchPeople(q) }.getOrNull().orEmpty() }
+        }
         val c = Session.client ?: return@LaunchedEffect
         val lower = q.lowercase()
         channels = withContext(Dispatchers.IO) {
@@ -717,7 +750,7 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
         }
         SearchMemory.rows.rowScroll.clear()
     }
-    SearchMemory.channels = channels; SearchMemory.movies = movies; SearchMemory.shows = shows
+    SearchMemory.channels = channels; SearchMemory.movies = movies; SearchMemory.shows = shows; SearchMemory.people = people
     LaunchedEffect(wantResults, channels, movies, shows) {
         if (!wantResults) return@LaunchedEffect
         val target = when {
@@ -817,6 +850,12 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
                 vs = SearchMemory.rows, rowKey = "movies") }
             item { PosterRow("TV Shows", shows, {}, { SearchHistory.add(ctx, query); onOpen(showType, it, null) }, firstItem = Modifier.focusRequester(firstShow),
                 vs = SearchMemory.rows, rowKey = "shows") }
+            item { PeopleRow(people) {
+                SearchHistory.add(ctx, query)
+                // Back from the person keeps these results (the cursor returns to the search box).
+                SearchMemory.rows.focusRow = "people"; SearchMemory.rows.restoreFocus = true
+                onPerson(it)
+            } }
         }
     }
 }

@@ -60,8 +60,10 @@ import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 /** Where you are in the cast pages: the title, then the actors you've opened, in order. */
-class CastNav(val title: String, val year: String, val isSeries: Boolean) {
-    val people = mutableStateListOf<Int>()
+class CastNav(val title: String, val year: String, val isSeries: Boolean, firstPerson: Int? = null) {
+    val people = mutableStateListOf<Int>().apply { if (firstPerson != null) add(firstPerson) }
+    /** Opened straight on a person (from Search): Back from that person closes the page. */
+    val direct = firstPerson != null
 }
 
 /** Finds an actor's films and shows in this provider's library. */
@@ -152,7 +154,7 @@ object CastLibrary {
 /** Cast list → actor page → (pick a title you have). Back steps out one page at a time. */
 @Composable
 fun CastBrowser(nav: CastNav, onClose: () -> Unit, onPick: (type: String, item: VodItem) -> Unit) {
-    BackHandler { if (nav.people.isNotEmpty()) nav.people.removeAt(nav.people.lastIndex) else onClose() }
+    BackHandler { if (nav.people.size > (if (nav.direct) 1 else 0)) nav.people.removeAt(nav.people.lastIndex) else onClose() }
     Box(Modifier.fillMaxSize().background(Bg)) {
         val person = nav.people.lastOrNull()
         if (person == null) CastList(nav) { nav.people.add(it) }

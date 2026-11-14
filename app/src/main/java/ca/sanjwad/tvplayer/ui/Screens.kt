@@ -225,6 +225,7 @@ fun App() {
                     }, live = live, movies = movies, series = series,
                     onOpen = { type, item, seasonId -> stack.add(DetailReq(type, item, seasonId)) },
                     onSettings = { screen = "setup" },
+                    onPerson = { id -> stack.add(CastNav("", "", false, firstPerson = id)) },
                 )
             }
             UpdatePrompt()

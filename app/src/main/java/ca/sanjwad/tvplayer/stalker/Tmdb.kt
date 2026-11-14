@@ -203,6 +203,24 @@ class TmdbClient(private val key: String) {
     private val people = java.util.concurrent.ConcurrentHashMap<Int, Person>()
 
     /** An actor's or director's details and every film and show they're in, best-known first. */
+    data class PersonHit(val id: Int, val name: String, val photo: String?, val knownFor: String)
+
+    /** Actors, directors etc. whose name matches, best-known first (only people with a photo and some fame). */
+    fun searchPeople(q: String): List<PersonHit> {
+        val res = get("search/person", "query" to q).optJSONArray("results") ?: return emptyList()
+        return (0 until res.length()).mapNotNull { res.optJSONObject(it) }
+            .filter { it.optDouble("popularity", 0.0) >= 1.0 && it.optString("profile_path").let { p -> p.isNotBlank() && p != "null" } }
+            .sortedByDescending { it.optDouble("popularity", 0.0) }
+            .take(12)
+            .map { o ->
+                val kf = o.optJSONArray("known_for")?.let { arr ->
+                    (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.let { k -> k.optString("title").ifBlank { k.optString("name") } } }
+                        .filter { it.isNotBlank() }.take(2).joinToString(", ")
+                }.orEmpty()
+                PersonHit(o.optInt("id"), o.optString("name"), "https://image.tmdb.org/t/p/w185" + o.optString("profile_path"), kf)
+            }
+    }
+
     fun person(personId: Int): Person {
         people[personId]?.let { return it }
         val o = get("person/$personId", "append_to_response" to "combined_credits")
