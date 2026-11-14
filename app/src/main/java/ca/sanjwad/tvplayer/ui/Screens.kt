@@ -1,5 +1,8 @@
 package ca.sanjwad.tvplayer.ui
 
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -355,11 +358,15 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
         )
         Spacer(Modifier.height(6.dp))
-        Row(w, verticalAlignment = Alignment.CenterVertically) {
-            Text("This TV's own MAC address is ", fontSize = 14.sp, color = TextDim)
-            Text(prefs.deviceMac, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Text(". Give it to your provider to set up, or type the one they gave you.", fontSize = 14.sp, color = TextDim,
-                modifier = Modifier.weight(1f))
+        Row(w.padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(buildAnnotatedString {
+                    append("This TV's own MAC address is  ")
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)) { append(prefs.deviceMac) }
+                }, fontSize = 14.sp, color = TextDim)
+                Spacer(Modifier.height(2.dp))
+                Text("Give it to your provider to set up, or type the one they gave you.", fontSize = 14.sp, color = TextDim)
+            }
             if (stMac != prefs.deviceMac) {
                 Spacer(Modifier.width(10.dp))
                 TvButton("Use it", onClick = { stMac = prefs.deviceMac })
