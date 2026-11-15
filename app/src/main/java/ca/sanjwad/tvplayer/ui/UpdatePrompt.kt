@@ -53,6 +53,8 @@ fun UpdatePrompt() {
     val fr = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
+        // Turned off in Settings: no pop-ups, updates only when someone presses "Check for updates".
+        if (!ca.sanjwad.tvplayer.Prefs(ctx).updatePrompts) return@LaunchedEffect
         delay(3000) // let the app settle first
         update = withContext(Dispatchers.IO) { Updater.check() }
     }

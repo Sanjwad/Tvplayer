@@ -63,6 +63,10 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("start_last_channel", true)
         set(v) = sp.edit().putBoolean("start_last_channel", v).apply()
     /** Share My List, favourites and watched progress with other TVs on the same login. */
+    /** Pop up "an update is ready" when the app opens. Off: updates only via Settings → Check for updates. */
+    var updatePrompts: Boolean
+        get() = sp.getBoolean("update_prompts", true)
+        set(v) = sp.edit().putBoolean("update_prompts", v).apply()
     var syncOn: Boolean
         get() = sp.getBoolean("sync_on", true)
         set(v) = sp.edit().putBoolean("sync_on", v).apply()

@@ -461,6 +461,20 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
                 ca.sanjwad.tvplayer.Updater.manualStatus.value?.let {
                     Spacer(Modifier.height(6.dp)); Text(it, fontSize = 14.sp, color = TextDim)
                 }
+                Spacer(Modifier.height(10.dp))
+                var prompts by remember { mutableStateOf(prefs.updatePrompts) }
+                FocusBox(onClick = { prompts = !prompts; prefs.updatePrompts = prompts }, modifier = w, shape = RoundedCornerShape(10.dp)) {
+                    Row(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Tell me when an update is ready", fontSize = 15.sp, color = Color.White)
+                            Text(if (prompts) "A message pops up when the app opens and there's a new version."
+                                 else "Off: no pop-ups. Update with Check for updates above when you want to.",
+                                fontSize = 12.sp, color = TextDim)
+                        }
+                        Text(if (prompts) "On" else "Off", fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                            color = if (prompts) Accent else TextDim)
+                    }
+                }
             } else {
                 Text("Change login details", fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
                 Text("Saving reconnects with the new details. Favourites and My List are kept per login.", fontSize = 13.sp, color = TextDim)
