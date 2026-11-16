@@ -61,7 +61,9 @@ object Share {
 
     /** Asks someone to be friends. Returns their name. If they'd already asked me, we're friends straight away. */
     fun request(code: String): String {
-        val c = code.trim().uppercase().replace(' ', '-')
+        // Typed any way: "chris 3307", "CHRIS3307" and "Chris-3307" all become CHRIS-3307.
+        val raw = code.uppercase().filter { it.isLetterOrDigit() }
+        val c = Regex("^([A-Z]+)(\\d{4})$").find(raw)?.let { "${it.groupValues[1]}-${it.groupValues[2]}" } ?: code.trim().uppercase()
         val who = get("who/" + java.net.URLEncoder.encode(c, "UTF-8"))
         apply(post("request", JSONObject().put("key", key).put("to", who.getString("code"))))
         return who.optString("name")
