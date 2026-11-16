@@ -75,6 +75,10 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("sync_asked", false)
         set(v) = sp.edit().putBoolean("sync_asked", v).apply()
     /** TVs with the same sync name share lists ("Family" by default; a different name keeps a separate set). */
+    /** The name friends see when this household sends them something ("Send to a friend"). */
+    var shareName: String
+        get() = sp.getString("share_name", "").orEmpty()
+        set(v) = sp.edit().putString("share_name", v.trim()).apply()
     var syncName: String
         get() = sp.getString("sync_name", "Family").orEmpty().ifBlank { "Family" }
         set(v) = sp.edit().putString("sync_name", v.trim().ifBlank { "Family" }).apply()

@@ -541,6 +541,12 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
                 fontSize = 12.sp, color = TextDim, modifier = w.padding(top = 6.dp))
         }
 
+        // ---- Friends ("Send to a friend")
+        if (ca.sanjwad.tvplayer.Share.available && Session.client != null) {
+            Spacer(Modifier.height(24.dp))
+            FriendsSettings(prefs, w)
+        }
+
         // ---- Advanced (collapsed)
         Spacer(Modifier.height(24.dp))
         FocusBox(onClick = { advanced = !advanced }, modifier = w, shape = RoundedCornerShape(10.dp)) {
@@ -1324,6 +1330,31 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
                 Spacer(Modifier.height(16.dp))
 
                 val saved = Library.inList(item.id)
+                // "Send to…": pick a friend; the title appears in their My List under "Sent to you".
+                val sendButton: @Composable () -> Unit = {
+                    if (ca.sanjwad.tvplayer.Share.available) TvButton("Send to…", onClick = {
+                        val S = ca.sanjwad.tvplayer.Share
+                        val fs = S.friends.value
+                        menu = "Send \"${item.name}\" to…" to if (S.myCode.value == null || fs.isEmpty())
+                            listOf("Add friends first in Settings → Friends" to {})
+                        else fs.map { f ->
+                            f.name to {
+                                val it0 = item
+                                scope.launch {
+                                    val r = withContext(Dispatchers.IO) {
+                                        runCatching {
+                                            S.send(f.code, ca.sanjwad.tvplayer.stalker.TitleMatch.stripTags(it0.name), it0.year.take(4),
+                                                it0.isSeries, it0.poster)
+                                        }
+                                    }
+                                    android.widget.Toast.makeText(ctx, if (r.isSuccess) "Sent to ${f.name}" else "Couldn't send: ${r.exceptionOrNull()?.message}",
+                                        android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                                Unit
+                            }
+                        }
+                    })
+                }
                 val listButton: @Composable () -> Unit = {
                     TvButton(if (saved) "✓  In My List" else "＋  My List",
                         onClick = { Library.toggleList(if (item.isSeries) "series" else "movies", type, item) })
@@ -1336,6 +1367,7 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
                         listButton()
                         if (onAbout != null && Session.tmdb != null) TvButton("About", onClick = onAbout)
                         if (onCast != null && Session.tmdb != null) TvButton("Cast & crew", onClick = onCast)
+                        sendButton()
                     }
                 } else {
                     val ss = seasons
@@ -1356,6 +1388,7 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
                         listButton()
                         if (onAbout != null && Session.tmdb != null) TvButton("About", onClick = onAbout)
                         if (onCast != null && Session.tmdb != null) TvButton("Cast & crew", onClick = onCast)
+                        sendButton()
                     }
                     Spacer(Modifier.height(14.dp))
                     if (ss == null) {
@@ -1548,6 +1581,69 @@ fun PortalLogScreen(onClose: () -> Unit) {
  * A text box for the remote. The cursor lands on an outline around the box, not the box itself, so
  * the TV's keyboard doesn't pop up while you scroll past. Press OK to type; moving away ends typing.
  */
+/** Settings → Friends: your friend code, your friends, and adding a friend by their code. */
+@Composable
+private fun FriendsSettings(prefs: ca.sanjwad.tvplayer.Prefs, w: Modifier) {
+    val S = ca.sanjwad.tvplayer.Share
+    val scope = rememberCoroutineScope()
+    val code = S.myCode.value
+    var name by remember { mutableStateOf(prefs.shareName) }
+    var addCode by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    fun run(block: () -> String?) {
+        if (busy) return
+        busy = true; note = null
+        scope.launch {
+            note = withContext(Dispatchers.IO) { runCatching { block() }.getOrElse { it.message ?: "Something went wrong." } }
+            busy = false
+        }
+    }
+    Text("Friends", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Color.White, modifier = w)
+    Text("Send a movie or show to a friend's Sanj TV. It appears in their My List under \"Sent to you\".",
+        fontSize = 13.sp, color = TextDim, modifier = w)
+    Spacer(Modifier.height(10.dp))
+    if (code == null) {
+        Row(w, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TvTextField(value = name, onValueChange = { name = it }, label = { Text("Your name (what friends will see)") },
+                singleLine = true, modifier = Modifier.weight(1f))
+            TvButton(if (busy) "Setting up…" else "Get my friend code", onClick = {
+                if (name.isBlank()) { note = "Type your name first."; return@TvButton }
+                prefs.shareName = name
+                run { S.setUp(name); null }
+            })
+        }
+    } else {
+        Row(w, verticalAlignment = Alignment.CenterVertically) {
+            Text("Your friend code  ", fontSize = 15.sp, color = TextDim)
+            Text(code, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Text("   Give it to friends so they can send you things.", fontSize = 13.sp, color = TextDim)
+        }
+        Spacer(Modifier.height(10.dp))
+        val fs = S.friends.value
+        if (fs.isEmpty()) Text("No friends added yet.", fontSize = 14.sp, color = TextDim, modifier = w)
+        fs.forEach { f ->
+            Row(w.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(f.name, fontSize = 16.sp, color = Color.White, modifier = Modifier.weight(1f))
+                Text(f.code, fontSize = 14.sp, color = TextDim)
+                Spacer(Modifier.width(14.dp))
+                TvButton("Remove", onClick = { run { S.removeFriend(f.code); "${f.name} removed." } })
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(w, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TvTextField(value = addCode, onValueChange = { addCode = it.uppercase() }, label = { Text("Friend's code (like CHRIS-4821)") },
+                singleLine = true, modifier = Modifier.weight(1f),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii))
+            TvButton(if (busy) "Adding…" else "Add friend", onClick = {
+                if (addCode.isBlank()) { note = "Type your friend's code first."; return@TvButton }
+                run { val n = S.addFriend(addCode); addCode = ""; "$n added. You can now send them things from any title page." }
+            })
+        }
+    }
+    note?.let { Spacer(Modifier.height(6.dp)); Text(it, fontSize = 14.sp, color = Color(0xFFE8EDF3), modifier = w) }
+}
+
 @Composable
 fun TvTextField(
     value: String, onValueChange: (String) -> Unit,

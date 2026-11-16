@@ -163,7 +163,7 @@ fun HomeScreen(
                     1 -> VodTab(movies) { onOpen(movies.type, it, null) }
                     2 -> VodTab(series) { onOpen(series.type, it, null) }
                     5 -> GlobalSearch(movies.type, series.type, onOpen, onPerson)
-                    else -> MyListScreen(onOpen)
+                    else -> MyListScreen(onOpen, movies.type, series.type)
                 }
             }
         }
@@ -254,8 +254,9 @@ fun RatingPills(item: VodItem) {
 // ---------------- posters ----------------
 
 @Composable
-fun PosterTile(item: VodItem, onFocus: () -> Unit = {}, badge: String? = null, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    FocusBox(onClick = onClick, modifier = modifier.width(112.dp), onFocus = onFocus, shape = RoundedCornerShape(8.dp)) {
+fun PosterTile(item: VodItem, onFocus: () -> Unit = {}, badge: String? = null, modifier: Modifier = Modifier,
+               onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
+    FocusBox(onClick = onClick, onLongClick = onLongClick, modifier = modifier.width(112.dp), onFocus = onFocus, shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.padding(4.dp)) {
             Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(6.dp)).background(Bg)) {
                 Text(item.name, Modifier.align(Alignment.Center).padding(6.dp), color = TextDim, fontSize = 12.sp, maxLines = 4)
@@ -895,7 +896,7 @@ private fun ResumeMenu(
 private data class ShowStatus(val badge: String, val seasonId: String?, val group: Int)
 
 @Composable
-fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Unit) {
+fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Unit, movieType: String = "vod", showType: String = "series") {
     val saved = Library.myList
     val watched = Library.watched
     val seasonsById = remember { mutableStateMapOf<String, List<Season>>() }
@@ -938,7 +939,9 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val resume = Library.progress.values.sortedByDescending { it.updated }
-    if (saved.isEmpty() && resume.isEmpty()) {
+    val sent = ca.sanjwad.tvplayer.Share.inbox.value
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { runCatching { ca.sanjwad.tvplayer.Share.refreshInbox() } } }
+    if (saved.isEmpty() && resume.isEmpty() && sent.isEmpty()) {
         CenterMessage("Your list is empty", "Open any movie or show and choose ＋ My List.")
         return
     }
@@ -983,6 +986,44 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
     Column(Modifier.fillMaxSize()) {
         Hero(hero)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            // Titles friends sent with "Send to…". OK finds it on your service; hold OK to remove it.
+            if (sent.isNotEmpty()) item {
+                Column {
+                    Text("📨  Sent to you", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
+                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        items(sent.size) { i ->
+                            val it = sent[i]
+                            val v = VodItem(it.id, it.title, "", it.poster, "", it.series, it.year, "")
+                            PosterTile(v, onFocus = {
+                                setHero(v.copy(description = "Sent by ${it.from}" + if (it.note.isNotBlank()) ": \"${it.note}\"" else "."))
+                            }, badge = "From ${it.from}", onLongClick = {
+                                ca.sanjwad.tvplayer.Share.dismiss(it.id)
+                                android.widget.Toast.makeText(ctx, "Removed ${it.title}", android.widget.Toast.LENGTH_SHORT).show()
+                            }) {
+                                // Find it in this TV's own library (friends may have a different provider).
+                                scope.launch {
+                                    val type = if (it.series) showType else movieType
+                                    val hit = withContext(Dispatchers.IO) {
+                                        runCatching {
+                                            val want = ca.sanjwad.tvplayer.stalker.TitleMatch.norm(it.title)
+                                            val y = it.year.take(4).toIntOrNull()
+                                            Session.client?.search(type, it.title).orEmpty()
+                                                .filter { r -> r.isSeries == it.series || type != movieType || showType != movieType }
+                                                .filter { r -> ca.sanjwad.tvplayer.stalker.TitleMatch.norm(r.name) == want }
+                                                .sortedBy { r -> val ry = r.year.take(4).toIntOrNull(); if (y == null || ry == null) 1 else kotlin.math.abs(ry - y) }
+                                                .firstOrNull()
+                                        }.getOrNull()
+                                    }
+                                    if (hit != null) onOpen(type, hit, null)
+                                    else android.widget.Toast.makeText(ctx, "${it.title} isn't on your service. Hold OK to remove it.",
+                                        android.widget.Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if (resume.isNotEmpty()) item {
                 val byKey = resume.associateBy { it.key }
                 val tiles = resume.map { p ->

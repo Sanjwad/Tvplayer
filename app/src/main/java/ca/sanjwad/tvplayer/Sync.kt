@@ -34,6 +34,7 @@ object Sync {
     /** Start syncing for this login (call after [Library.load]). */
     fun start(prefs: Prefs) {
         stop()
+        Share.init(prefs) // friends and "Sent to you" work whether or not this TV syncs its lists
         if (BASE.isBlank()) return
         if (!prefs.syncOn) { status = "Off on this TV"; return }
         val secret = if (prefs.isStalker) "stalker|${prefs.accountKey}" else "xtream|${prefs.accountKey}|${prefs.xtPass}"

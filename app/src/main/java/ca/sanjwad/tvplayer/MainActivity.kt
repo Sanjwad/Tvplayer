@@ -16,5 +16,6 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         Sync.now()
+        Thread { runCatching { Share.refreshInbox() } }.apply { isDaemon = true }.start()
     }
 }
