@@ -46,7 +46,13 @@ object Share {
         if (available && prefs.shareName.isNotBlank()) Thread {
             runCatching { setUp(prefs.shareName) }; runCatching { refreshInbox() }
         }.apply { isDaemon = true }.start()
+        // Check every 5 minutes for new friend requests, accepted requests and things sent to me,
+        // so a TV that's left on with the app open still notices (only cheap reads).
+        if (poller == null && available) poller = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
+            Thread(r, "share-poll").apply { isDaemon = true }
+        }.also { it.scheduleWithFixedDelay({ runCatching { refreshMe() }; runCatching { refreshInbox() } }, 5, 5, TimeUnit.MINUTES) }
     }
+    private var poller: java.util.concurrent.ScheduledExecutorService? = null
 
     /** Creates (or renames) my friend code. */
     fun setUp(name: String) = apply(post("me", JSONObject().put("key", key).put("name", name)))

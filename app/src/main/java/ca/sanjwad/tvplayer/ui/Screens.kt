@@ -1333,8 +1333,10 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
                 val saved = Library.inList(item.id)
                 // "Send to…": pick a friend; the title appears in their My List under "Sent to you".
                 val sendButton: @Composable () -> Unit = {
-                    if (ca.sanjwad.tvplayer.Share.available) TvButton("Send to…", onClick = {
+                    if (ca.sanjwad.tvplayer.Share.available) TvButton("Send to…", onClick = { scope.launch {
                         val S = ca.sanjwad.tvplayer.Share
+                        // Fetch the latest friends first, in case someone accepted since the app was opened.
+                        withContext(Dispatchers.IO) { runCatching { S.refreshMe() } }
                         val fs = S.friends.value
                         menu = "Send \"${item.name}\" to…" to if (S.myCode.value == null || fs.isEmpty())
                             listOf("Add friends first in Settings → Friends" to {})
@@ -1354,7 +1356,7 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
                                 Unit
                             }
                         }
-                    })
+                    } })
                 }
                 val listButton: @Composable () -> Unit = {
                     TvButton(if (saved) "✓  In My List" else "＋  My List",
@@ -1614,6 +1616,8 @@ private fun FriendsSettings(prefs: ca.sanjwad.tvplayer.Prefs, w: Modifier) {
     val S = ca.sanjwad.tvplayer.Share
     val scope = rememberCoroutineScope()
     val code = S.myCode.value
+    // Always show the latest: a friend may have accepted while this TV had the app open.
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { runCatching { S.refreshMe() } } }
     var name by remember { mutableStateOf(prefs.shareName) }
     var addCode by remember { mutableStateOf("") }
     var note by remember { mutableStateOf<String?>(null) }
