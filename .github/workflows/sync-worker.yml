@@ -81,9 +81,14 @@ jobs:
           rb=$(j me "{\"key\":\"$b\",\"name\":\"Test B\"}"); echo "B: $rb"
           cb=$(echo "$rb" | jq -r .code)
           curl -sS "$url/v1/share/who/$cb"; echo
-          j friends "{\"key\":\"$a\",\"friends\":[\"$cb\"]}"
+          j request "{\"key\":\"$a\",\"to\":\"$cb\"}"
+          ca=$(echo "$ra" | jq -r .code)
+          j respond "{\"key\":\"$b\",\"code\":\"$ca\",\"accept\":true}"
           j send "{\"key\":\"$a\",\"to\":\"$cb\",\"item\":{\"title\":\"Uncle Buck\",\"year\":\"1989\",\"series\":false}}"
           inbox=$(curl -sS "$url/v1/share/inbox/$b"); echo "inbox: $inbox"
           id=$(echo "$inbox" | jq -r '.items[0].id')
           [ "$(echo "$inbox" | jq -r '.items[0].title')" = "Uncle Buck" ] && echo "SHARE TEST PASSED" || { echo "::error::share test failed"; exit 1; }
+          j unfriend "{\"key\":\"$a\",\"code\":\"$cb\"}"
+          after=$(j send "{\"key\":\"$a\",\"to\":\"$cb\",\"item\":{\"title\":\"X\"}}"); echo "after unfriend: $after"
+          echo "$after" | grep -q "only send to friends" && echo "UNFRIEND TEST PASSED" || { echo "::error::unfriend test failed"; exit 1; }
           j dismiss "{\"key\":\"$b\",\"id\":\"$id\"}"

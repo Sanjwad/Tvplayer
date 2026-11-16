@@ -29,6 +29,9 @@ object Share {
     val myCode = mutableStateOf<String?>(null)
     val myName = mutableStateOf("")
     val friends = mutableStateOf<List<Friend>>(emptyList())
+    /** People asking to be my friend, and people I've asked who haven't answered yet. */
+    val requestsIn = mutableStateOf<List<Friend>>(emptyList())
+    val requestsOut = mutableStateOf<List<Friend>>(emptyList())
     val inbox = mutableStateOf<List<Item>>(emptyList())
 
     val available get() = BASE.isNotBlank()
@@ -38,7 +41,7 @@ object Share {
         val secret = if (prefs.isStalker) "stalker|${prefs.accountKey}" else "xtream|${prefs.accountKey}|${prefs.xtPass}"
         val name = prefs.syncName.trim().lowercase()
         val k = sha256("sanjtv-share-v1|$secret" + if (name == "family") "" else "|name:$name")
-        if (k != key) { key = k; myCode.value = null; friends.value = emptyList(); inbox.value = emptyList() }
+        if (k != key) { key = k; myCode.value = null; friends.value = emptyList(); requestsIn.value = emptyList(); requestsOut.value = emptyList(); inbox.value = emptyList() }
         myName.value = prefs.shareName
         if (available && prefs.shareName.isNotBlank()) Thread {
             runCatching { setUp(prefs.shareName) }; runCatching { refreshInbox() }
@@ -46,26 +49,36 @@ object Share {
     }
 
     /** Creates (or renames) my friend code. */
-    fun setUp(name: String) {
-        val o = post("me", JSONObject().put("key", key).put("name", name))
-        myCode.value = o.optString("code").ifBlank { null }
-        myName.value = o.optString("name")
-        friends.value = parseFriends(o.optJSONArray("friends"))
+    fun setUp(name: String) = apply(post("me", JSONObject().put("key", key).put("name", name)))
+
+    /** Re-reads my friends and requests (cheap; done when the app comes back to the front). */
+    fun refreshMe() {
+        val k = key ?: return
+        if (!available) return
+        val o = get("me/$k")
+        if (o.has("code")) apply(o)
     }
 
-    /** Checks the code exists, then adds it. Returns the friend's name. */
-    fun addFriend(code: String): String {
+    /** Asks someone to be friends. Returns their name. If they'd already asked me, we're friends straight away. */
+    fun request(code: String): String {
         val c = code.trim().uppercase().replace(' ', '-')
         val who = get("who/" + java.net.URLEncoder.encode(c, "UTF-8"))
-        saveFriends(friends.value.map { it.code } + who.getString("code"))
+        apply(post("request", JSONObject().put("key", key).put("to", who.getString("code"))))
         return who.optString("name")
     }
 
-    fun removeFriend(code: String) = saveFriends(friends.value.map { it.code }.filter { it != code })
+    /** Accept or decline a request (also cancels one I sent). */
+    fun respond(code: String, accept: Boolean) = apply(post("respond", JSONObject().put("key", key).put("code", code).put("accept", accept)))
 
-    private fun saveFriends(codes: List<String>) {
-        val o = post("friends", JSONObject().put("key", key).put("friends", JSONArray(codes.distinct())))
+    /** Ends a friendship on both sides. */
+    fun unfriend(code: String) = apply(post("unfriend", JSONObject().put("key", key).put("code", code)))
+
+    private fun apply(o: JSONObject) {
+        myCode.value = o.optString("code").ifBlank { null }
+        myName.value = o.optString("name")
         friends.value = parseFriends(o.optJSONArray("friends"))
+        requestsIn.value = parseFriends(o.optJSONArray("requestsIn"))
+        requestsOut.value = parseFriends(o.optJSONArray("requestsOut"))
     }
 
     fun send(to: String, title: String, year: String, series: Boolean, poster: String?, note: String = "") {

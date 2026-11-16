@@ -229,6 +229,7 @@ fun App() {
                 )
             }
             UpdatePrompt()
+            FriendRequestPrompt()
         }
     }
 }
@@ -1581,6 +1582,32 @@ fun PortalLogScreen(onClose: () -> Unit) {
  * A text box for the remote. The cursor lands on an outline around the box, not the box itself, so
  * the TV's keyboard doesn't pop up while you scroll past. Press OK to type; moving away ends typing.
  */
+/** Pops up when someone has asked to be friends: Accept, Decline, or decide later in Settings → Friends. */
+@Composable
+private fun FriendRequestPrompt() {
+    val S = ca.sanjwad.tvplayer.Share
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    val asked = remember { androidx.compose.runtime.mutableStateListOf<String>() } // shown once per session per person
+    val f = S.requestsIn.value.firstOrNull { it.code !in asked } ?: return
+    fun answer(accept: Boolean) {
+        asked += f.code
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { runCatching { S.respond(f.code, accept) } }
+            android.widget.Toast.makeText(ctx, when {
+                r.isFailure -> "Couldn't answer: ${r.exceptionOrNull()?.message}"
+                accept -> "You and ${f.name} are now friends"
+                else -> "Declined"
+            }, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+    WatchedMenu("${f.name} (${f.code}) wants to be friends, so you can send each other movies and shows.", listOf(
+        "Accept" to { answer(true) },
+        "Decline" to { answer(false) },
+        "Decide later (Settings → Friends)" to { asked += f.code },
+    ), onClose = { asked += f.code })
+}
+
 /** Settings → Friends: your friend code, your friends, and adding a friend by their code. */
 @Composable
 private fun FriendsSettings(prefs: ca.sanjwad.tvplayer.Prefs, w: Modifier) {
@@ -1620,14 +1647,32 @@ private fun FriendsSettings(prefs: ca.sanjwad.tvplayer.Prefs, w: Modifier) {
             Text("   Give it to friends so they can send you things.", fontSize = 13.sp, color = TextDim)
         }
         Spacer(Modifier.height(10.dp))
+        // Requests waiting for my answer.
+        S.requestsIn.value.forEach { f ->
+            Row(w.padding(vertical = 3.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x33F4B860)).padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("${f.name} (${f.code}) wants to be friends", fontSize = 15.sp, color = Color.White, modifier = Modifier.weight(1f))
+                TvButton("Accept", onClick = { run { S.respond(f.code, true); "You and ${f.name} are now friends." } })
+                TvButton("Decline", onClick = { run { S.respond(f.code, false); "Declined." } })
+            }
+        }
         val fs = S.friends.value
-        if (fs.isEmpty()) Text("No friends added yet.", fontSize = 14.sp, color = TextDim, modifier = w)
+        if (fs.isEmpty() && S.requestsOut.value.isEmpty()) Text("No friends added yet.", fontSize = 14.sp, color = TextDim, modifier = w)
         fs.forEach { f ->
             Row(w.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(f.name, fontSize = 16.sp, color = Color.White, modifier = Modifier.weight(1f))
                 Text(f.code, fontSize = 14.sp, color = TextDim)
                 Spacer(Modifier.width(14.dp))
-                TvButton("Remove", onClick = { run { S.removeFriend(f.code); "${f.name} removed." } })
+                TvButton("Remove", onClick = { run { S.unfriend(f.code); "${f.name} removed. You can no longer send things to each other." } })
+            }
+        }
+        // Requests I sent that haven't been answered.
+        S.requestsOut.value.forEach { f ->
+            Row(w.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("${f.name}  ·  waiting for them to accept", fontSize = 15.sp, color = TextDim, modifier = Modifier.weight(1f))
+                Text(f.code, fontSize = 14.sp, color = TextDim)
+                Spacer(Modifier.width(14.dp))
+                TvButton("Cancel", onClick = { run { S.respond(f.code, false); "Request cancelled." } })
             }
         }
         Spacer(Modifier.height(10.dp))
@@ -1635,9 +1680,13 @@ private fun FriendsSettings(prefs: ca.sanjwad.tvplayer.Prefs, w: Modifier) {
             TvTextField(value = addCode, onValueChange = { addCode = it.uppercase() }, label = { Text("Friend's code (like CHRIS-4821)") },
                 singleLine = true, modifier = Modifier.weight(1f),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii))
-            TvButton(if (busy) "Adding…" else "Add friend", onClick = {
+            TvButton(if (busy) "Sending…" else "Send friend request", onClick = {
                 if (addCode.isBlank()) { note = "Type your friend's code first."; return@TvButton }
-                run { val n = S.addFriend(addCode); addCode = ""; "$n added. You can now send them things from any title page." }
+                run {
+                    val n = S.request(addCode); addCode = ""
+                    if (S.friends.value.any { it.name == n }) "You and $n are now friends."
+                    else "Request sent to $n. Once they accept, you can send each other movies and shows."
+                }
             })
         }
     }

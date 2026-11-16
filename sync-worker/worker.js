@@ -8,10 +8,15 @@
 //
 // Sharing ("Send to a friend"): each household also gets a public friend code like SANJ-4821.
 // The private 64-character share key proves who you are; friend codes are only for finding people.
-//   POST /v1/share/me        {key, name}            -> {code, name, friends:[{code,name}]}
+// Friendship is mutual: one side sends a request, the other accepts, and both are then friends.
+//   POST /v1/share/me        {key, name}            -> my state (creates my code the first time)
+//   GET  /v1/share/me/<key>                         -> my state (read only), or {} if not set up
+//        state = {code, name, friends:[{code,name}], requestsIn:[…], requestsOut:[…]}
 //   GET  /v1/share/who/<CODE>                       -> {code, name}  (to check a code before adding)
-//   POST /v1/share/friends   {key, friends:[CODE]}  -> {friends:[{code,name}]}
-//   POST /v1/share/send      {key, to:CODE, item}   -> {ok}
+//   POST /v1/share/request   {key, to:CODE}         -> state  (accepts at once if they'd already asked me)
+//   POST /v1/share/respond   {key, code, accept}    -> state
+//   POST /v1/share/unfriend  {key, code}            -> state  (removes the friendship on both sides)
+//   POST /v1/share/send      {key, to:CODE, item}   -> {ok}  (friends only)
 //   GET  /v1/share/inbox/<key>                      -> {items:[…]}
 //   POST /v1/share/dismiss   {key, id}              -> {ok}
 
@@ -63,12 +68,25 @@ async function me(env, key) {
 }
 async function friendList(env, codes) {
   const out = [];
-  for (const c of codes) {
+  for (const c of codes || []) {
     const w = await getJ(env, "share:code:" + c);
     if (w) out.push({ code: c, name: w.name });
   }
   return out;
 }
+async function state(env, rec) {
+  return { code: rec.code, name: rec.name, friends: await friendList(env, rec.friends),
+           requestsIn: await friendList(env, rec.requestsIn), requestsOut: await friendList(env, rec.requestsOut) };
+}
+// Load the other person's record by code, change it, save it.
+async function other(env, code) {
+  const c = await getJ(env, "share:code:" + code);
+  if (!c) return null;
+  const rec = await getJ(env, "share:me:" + c.key);
+  return rec ? { key: c.key, rec } : null;
+}
+const without = (list, x) => (list || []).filter(v => v !== x);
+const withx = (list, x) => [...new Set([...(list || []), x])];
 
 async function share(req, env, rest) {
   const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
@@ -85,7 +103,7 @@ async function share(req, env, rest) {
         if (!(await env.SYNC.get("share:code:" + c))) code = c;
       }
       if (!code) throw new Error("no free code");
-      rec = { code, name, friends: [] };
+      rec = { code, name, friends: [], requestsIn: [], requestsOut: [] };
       await putJ(env, "share:me:" + body.key, rec);
       await putJ(env, "share:code:" + code, { key: body.key, name });
     } else if (rec.name !== name) {
@@ -93,7 +111,13 @@ async function share(req, env, rest) {
       await putJ(env, "share:me:" + body.key, rec);
       await putJ(env, "share:code:" + rec.code, { key: body.key, name });
     }
-    return json({ code: rec.code, name: rec.name, friends: await friendList(env, rec.friends || []) });
+    return json(await state(env, rec));
+  }
+
+  if (rest.startsWith("me/") && req.method === "GET") {
+    const rec = await me(env, rest.slice(3));
+    return new Response(JSON.stringify(rec ? await state(env, rec) : {}),
+      { headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" } });
   }
 
   if (rest.startsWith("who/") && req.method === "GET") {
@@ -103,19 +127,60 @@ async function share(req, env, rest) {
     return w ? json({ code: c, name: w.name }) : json({ error: "No one has the code " + c + "." }, 404);
   }
 
-  if (rest === "friends" && req.method === "POST") {
+  if (rest === "request" && req.method === "POST") {
     const rec = await me(env, body.key);
     if (!rec) throw new Error("set up your friend code first");
-    const codes = [...new Set((body.friends || []).map(c => String(c).toUpperCase().trim()).filter(c => CODE.test(c) && c !== rec.code))].slice(0, 50);
-    rec.friends = codes;
+    const to = String(body.to || "").toUpperCase().trim();
+    if (to === rec.code) return json({ error: "That's your own code." }, 400);
+    const o = CODE.test(to) ? await other(env, to) : null;
+    if (!o) return json({ error: "No one has the code " + to + "." }, 404);
+    if ((rec.friends || []).includes(to)) return json(await state(env, rec));
+    if ((rec.requestsIn || []).includes(to)) {
+      // They'd already asked me: that's a yes from both sides.
+      rec.requestsIn = without(rec.requestsIn, to); rec.friends = withx(rec.friends, to);
+      o.rec.requestsOut = without(o.rec.requestsOut, rec.code); o.rec.friends = withx(o.rec.friends, rec.code);
+    } else {
+      rec.requestsOut = withx(rec.requestsOut, to);
+      o.rec.requestsIn = withx(o.rec.requestsIn, rec.code);
+    }
     await putJ(env, "share:me:" + body.key, rec);
-    return json({ friends: await friendList(env, codes) });
+    await putJ(env, "share:me:" + o.key, o.rec);
+    return json(await state(env, rec));
+  }
+
+  if (rest === "respond" && req.method === "POST") {
+    const rec = await me(env, body.key);
+    if (!rec) throw new Error("set up your friend code first");
+    const code = String(body.code || "").toUpperCase().trim();
+    rec.requestsIn = without(rec.requestsIn, code);
+    rec.requestsOut = without(rec.requestsOut, code); // also lets me cancel a request I sent
+    const o = CODE.test(code) ? await other(env, code) : null;
+    if (o) {
+      o.rec.requestsOut = without(o.rec.requestsOut, rec.code);
+      o.rec.requestsIn = without(o.rec.requestsIn, rec.code);
+      if (body.accept) { rec.friends = withx(rec.friends, code); o.rec.friends = withx(o.rec.friends, rec.code); }
+      await putJ(env, "share:me:" + o.key, o.rec);
+    }
+    await putJ(env, "share:me:" + body.key, rec);
+    return json(await state(env, rec));
+  }
+
+  if (rest === "unfriend" && req.method === "POST") {
+    const rec = await me(env, body.key);
+    if (!rec) throw new Error("set up your friend code first");
+    const code = String(body.code || "").toUpperCase().trim();
+    rec.friends = without(rec.friends, code);
+    const o = CODE.test(code) ? await other(env, code) : null;
+    if (o) { o.rec.friends = without(o.rec.friends, rec.code); await putJ(env, "share:me:" + o.key, o.rec); }
+    await putJ(env, "share:me:" + body.key, rec);
+    return json(await state(env, rec));
   }
 
   if (rest === "send" && req.method === "POST") {
     const rec = await me(env, body.key);
     if (!rec) throw new Error("set up your friend code first");
     const to = String(body.to || "").toUpperCase().trim();
+    if (!(rec.friends || []).includes(to)) return json({ error: "You can only send to friends who have accepted." }, 403);
     const target = CODE.test(to) ? await getJ(env, "share:code:" + to) : null;
     if (!target) return json({ error: "No one has the code " + to + "." }, 404);
     const it = body.item || {};
