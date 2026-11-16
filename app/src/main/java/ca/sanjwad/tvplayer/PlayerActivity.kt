@@ -87,6 +87,16 @@ class PlayerActivity : ComponentActivity() {
             posMs = pos, durMs = dur, updated = System.currentTimeMillis(),
             seriesId = intent.getStringExtra("series_id"),
         ))
+        // An episode counts as watched once you're into the last 10% (the credits), not when it starts.
+        if (pos >= dur * 0.9) markEpisodeWatched()
+    }
+
+    private fun markEpisodeWatched() {
+        if (intent.getStringExtra("is_series") != "1") return
+        val sid = intent.getStringExtra("series_id") ?: return
+        val sn = intent.getStringExtra("season")?.toIntOrNull() ?: return
+        val en = intent.getStringExtra("episode")?.toIntOrNull() ?: return
+        Library.markWatched(sid, sn, en)
     }
     /** Recent request outcomes, shown when playback fails so the cause is visible. */
     private val trail = java.util.Collections.synchronizedList(mutableListOf<String>())
@@ -219,6 +229,7 @@ class PlayerActivity : ComponentActivity() {
                 }
                 // An episode played to the end: go back to the show, which counts down to the next one.
                 if (state == Player.STATE_ENDED && liveIndex < 0 && !isCatchup && intent.getStringExtra("is_series") == "1") {
+                    markEpisodeWatched()
                     intent.getStringExtra("series_id")?.let { ca.sanjwad.tvplayer.Session.episodeEnded = it }
                     finish()
                     return

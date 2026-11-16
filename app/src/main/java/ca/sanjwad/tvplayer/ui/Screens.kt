@@ -1222,7 +1222,7 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
 
     fun playEpisode(s: Season, si: Int, ep: Episode, ei: Int) {
         val sn = Library.seasonNumber(s, si); val en = Library.episodeNumber(ep, ei)
-        Library.markWatched(item.id, sn, en)
+        // Marked watched by the player once it's nearly finished, not just for starting it.
         play(ep.cmd, ep.seriesParam, item.name, null, mapOf(
             "key" to "e:${ep.cmd}", "subtitle" to "S$sn E$en  ·  ${ep.title}",
             "poster" to (item.poster ?: ep.thumb), "series_id" to item.id,
