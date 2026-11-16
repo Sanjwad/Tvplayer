@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit
 object Share {
     data class Friend(val code: String, val name: String)
     data class Item(val id: String, val at: Long, val from: String, val title: String, val year: String,
-                    val series: Boolean, val poster: String?, val note: String)
+                    val series: Boolean, val poster: String?, val note: String, val to: String = "")
 
     private val BASE = BuildConfig.SYNC_URL.trimEnd('/')
     private val http = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).build()
@@ -33,6 +33,8 @@ object Share {
     val requestsIn = mutableStateOf<List<Friend>>(emptyList())
     val requestsOut = mutableStateOf<List<Friend>>(emptyList())
     val inbox = mutableStateOf<List<Item>>(emptyList())
+    /** What this household has sent, newest first ("Sent by you" at the bottom of My List). */
+    val outbox = mutableStateOf<List<Item>>(emptyList())
 
     val available get() = BASE.isNotBlank()
 
@@ -92,16 +94,25 @@ object Share {
     fun send(to: String, title: String, year: String, series: Boolean, poster: String?, note: String = "") {
         post("send", JSONObject().put("key", key).put("to", to).put("item", JSONObject()
             .put("title", title).put("year", year).put("series", series).put("poster", poster ?: "").put("note", note)))
+        runCatching { key?.let { k -> outbox.value = items(get("outbox/$k").optJSONArray("items")) } }
     }
 
     fun refreshInbox() {
         val k = key ?: return
         if (!available || myCode.value == null) return
-        val arr = get("inbox/$k").optJSONArray("items") ?: JSONArray()
-        inbox.value = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.map { o ->
-            Item(o.optString("id"), o.optLong("at"), o.optString("from"), o.optString("title"), o.optString("year"),
-                o.optBoolean("series"), o.optString("poster").ifBlank { null }, o.optString("note"))
-        }
+        inbox.value = items(get("inbox/$k").optJSONArray("items"))
+        runCatching { outbox.value = items(get("outbox/$k").optJSONArray("items")) }
+    }
+
+    private fun items(arr: JSONArray?) = (0 until (arr?.length() ?: 0)).mapNotNull { arr!!.optJSONObject(it) }.map { o ->
+        Item(o.optString("id"), o.optLong("at"), o.optString("from"), o.optString("title"), o.optString("year"),
+            o.optBoolean("series"), o.optString("poster").ifBlank { null }, o.optString("note"), o.optString("to"))
+    }
+
+    /** Takes a title off my own "Sent by you" row (the friend keeps theirs). */
+    fun unsend(id: String) {
+        outbox.value = outbox.value.filterNot { it.id == id }
+        Thread { runCatching { post("unsend", JSONObject().put("key", key).put("id", id)) } }.apply { isDaemon = true }.start()
     }
 
     fun dismiss(id: String) {

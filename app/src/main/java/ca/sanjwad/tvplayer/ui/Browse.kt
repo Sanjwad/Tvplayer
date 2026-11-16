@@ -940,8 +940,10 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
     val scope = rememberCoroutineScope()
     val resume = Library.progress.values.sortedByDescending { it.updated }
     val sent = ca.sanjwad.tvplayer.Share.inbox.value
+    val sentByMe = ca.sanjwad.tvplayer.Share.outbox.value
+    var unsend by remember { mutableStateOf<ca.sanjwad.tvplayer.Share.Item?>(null) }
     LaunchedEffect(Unit) { withContext(Dispatchers.IO) { runCatching { ca.sanjwad.tvplayer.Share.refreshInbox() } } }
-    if (saved.isEmpty() && resume.isEmpty() && sent.isEmpty()) {
+    if (saved.isEmpty() && resume.isEmpty() && sent.isEmpty() && sentByMe.isEmpty()) {
         CenterMessage("Your list is empty", "Open any movie or show and choose ＋ My List.")
         return
     }
@@ -949,6 +951,28 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
     var menuFor by remember { mutableStateOf<ca.sanjwad.tvplayer.Progress?>(null) }
     // Sent-to-you titles stay until someone chooses to remove them (hold OK, then confirm).
     var removeSent by remember { mutableStateOf<ca.sanjwad.tvplayer.Share.Item?>(null) }
+    // Find a shared title in this TV's own library (friends may have a different provider) and open it.
+    fun openShared(it: ca.sanjwad.tvplayer.Share.Item) {
+        scope.launch {
+            val type = if (it.series) showType else movieType
+            val hit = withContext(Dispatchers.IO) {
+                runCatching {
+                    val want = ca.sanjwad.tvplayer.stalker.TitleMatch.norm(it.title)
+                    val y = it.year.take(4).toIntOrNull()
+                    Session.client?.search(type, it.title).orEmpty()
+                        .filter { r -> r.isSeries == it.series || type != movieType || showType != movieType }
+                        .filter { r -> ca.sanjwad.tvplayer.stalker.TitleMatch.norm(r.name) == want }
+                        .sortedBy { r -> val ry = r.year.take(4).toIntOrNull(); if (y == null || ry == null) 1 else kotlin.math.abs(ry - y) }
+                        .firstOrNull()
+                }.getOrNull()
+            }
+            if (hit != null) onOpen(type, hit, null)
+            else android.widget.Toast.makeText(ctx, "${it.title} isn't on your service. Hold OK to remove it.",
+                android.widget.Toast.LENGTH_LONG).show()
+        }
+
+    }
+
 
     fun resumePlay(p: ca.sanjwad.tvplayer.Progress, fromStart: Boolean = false) {
         scope.launch {
@@ -1000,24 +1024,7 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
                             PosterTile(v, onFocus = {
                                 setHero(v.copy(description = "Sent by ${it.from}" + if (it.note.isNotBlank()) ": \"${it.note}\"" else "."))
                             }, badge = "From ${it.from}", onLongClick = { removeSent = it }) {
-                                // Find it in this TV's own library (friends may have a different provider).
-                                scope.launch {
-                                    val type = if (it.series) showType else movieType
-                                    val hit = withContext(Dispatchers.IO) {
-                                        runCatching {
-                                            val want = ca.sanjwad.tvplayer.stalker.TitleMatch.norm(it.title)
-                                            val y = it.year.take(4).toIntOrNull()
-                                            Session.client?.search(type, it.title).orEmpty()
-                                                .filter { r -> r.isSeries == it.series || type != movieType || showType != movieType }
-                                                .filter { r -> ca.sanjwad.tvplayer.stalker.TitleMatch.norm(r.name) == want }
-                                                .sortedBy { r -> val ry = r.year.take(4).toIntOrNull(); if (y == null || ry == null) 1 else kotlin.math.abs(ry - y) }
-                                                .firstOrNull()
-                                        }.getOrNull()
-                                    }
-                                    if (hit != null) onOpen(type, hit, null)
-                                    else android.widget.Toast.makeText(ctx, "${it.title} isn't on your service. Hold OK to remove it.",
-                                        android.widget.Toast.LENGTH_LONG).show()
-                                }
+                                openShared(it)
                             }
                         }
                     }
@@ -1050,6 +1057,22 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
                     onOpen = { item -> byId[item.id]?.let { onOpen(it.type, item, null) } })
             }
             item { showRow("Caught up — waiting for new episodes", caughtUp) }
+            // Right at the bottom: what this household has sent to friends.
+            if (sentByMe.isNotEmpty()) item {
+                Column {
+                    Text("📤  Sent by you", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
+                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        items(sentByMe.size) { i ->
+                            val it = sentByMe[i]
+                            val v = VodItem("out:" + it.id, it.title, "", it.poster, "", it.series, it.year, "")
+                            val whenSent = android.text.format.DateUtils.getRelativeTimeSpanString(it.at).toString()
+                            PosterTile(v, onFocus = { setHero(v.copy(description = "You sent this to ${it.to} $whenSent.")) },
+                                badge = "To ${it.to}", onLongClick = { unsend = it }) { openShared(it) }
+                        }
+                    }
+                }
+            }
         }
     }
     removeSent?.let { r ->
@@ -1060,6 +1083,12 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
                 android.widget.Toast.makeText(ctx, "Removed ${r.title}", android.widget.Toast.LENGTH_SHORT).show()
             },
         ), onClose = { removeSent = null })
+    }
+    unsend?.let { r ->
+        WatchedMenu("Remove \"${r.title}\" from Sent by you?", listOf(
+            "Keep it" to {},
+            "Remove" to { ca.sanjwad.tvplayer.Share.unsend(r.id) },
+        ), onClose = { unsend = null })
     }
     menuFor?.let { p ->
         ResumeMenu(p,

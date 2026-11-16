@@ -18,6 +18,8 @@
 //   POST /v1/share/unfriend  {key, code}            -> state  (removes the friendship on both sides)
 //   POST /v1/share/send      {key, to:CODE, item}   -> {ok}  (friends only)
 //   GET  /v1/share/inbox/<key>                      -> {items:[…]}
+//   GET  /v1/share/outbox/<key>                     -> {items:[…]}  (what I've sent, newest first)
+//   POST /v1/share/unsend    {key, id}              -> {ok}  (removes it from my sent list only)
 //   POST /v1/share/dismiss   {key, id}              -> {ok}
 
 const MAX = 512 * 1024;
@@ -216,6 +218,10 @@ async function share(req, env, rest) {
     const inbox = (await getJ(env, "share:inbox:" + target.key)) || [];
     inbox.unshift(item);
     await putJ(env, "share:inbox:" + target.key, inbox.slice(0, INBOX_MAX));
+    // Keep a copy for my own "Sent by you" row.
+    const outbox = (await getJ(env, "share:outbox:" + body.key)) || [];
+    outbox.unshift({ ...item, to: target.name, toCode: to });
+    await putJ(env, "share:outbox:" + body.key, outbox.slice(0, INBOX_MAX));
     return json({ ok: true, to: target.name });
   }
 
@@ -224,6 +230,21 @@ async function share(req, env, rest) {
     if (!KEY.test(key)) throw new Error("bad key");
     return new Response(JSON.stringify({ items: (await getJ(env, "share:inbox:" + key)) || [] }),
       { headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  }
+
+  if (rest.startsWith("outbox/") && req.method === "GET") {
+    const key = rest.slice(7);
+    if (!KEY.test(key)) throw new Error("bad key");
+    return new Response(JSON.stringify({ items: (await getJ(env, "share:outbox:" + key)) || [] }),
+      { headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  }
+
+  if (rest === "unsend" && req.method === "POST") {
+    if (!KEY.test(body.key || "")) throw new Error("bad key");
+    const outbox = (await getJ(env, "share:outbox:" + body.key)) || [];
+    const left = outbox.filter(i => i.id !== body.id);
+    if (left.length !== outbox.length) await putJ(env, "share:outbox:" + body.key, left);
+    return json({ ok: true });
   }
 
   if (rest === "dismiss" && req.method === "POST") {
