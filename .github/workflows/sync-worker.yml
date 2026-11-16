@@ -72,3 +72,18 @@ jobs:
           curl -fsS -X PUT -H "Content-Type: application/json" --data '{"v":1,"items":{"test":1}}' "$url/v1/$k" && echo
           got=$(curl -fsS "$url/v1/$k"); echo "read back: $got"
           [ "$got" = '{"v":1,"items":{"test":1}}' ] && echo "SYNC TEST PASSED" || { echo "::error::sync test failed"; exit 1; }
+      - name: Share test
+        run: |
+          url="https://sanjtv-sync.${{ env.SUB || 'sanjwad' }}.workers.dev"
+          a=$(printf 'a%.0s' $(seq 64)); b=$(printf 'b%.0s' $(seq 64))
+          j() { curl -sS -X POST -H "Content-Type: application/json" --data "$2" "$url/v1/share/$1"; echo; }
+          ra=$(j me "{\"key\":\"$a\",\"name\":\"Test A\"}"); echo "A: $ra"
+          rb=$(j me "{\"key\":\"$b\",\"name\":\"Test B\"}"); echo "B: $rb"
+          cb=$(echo "$rb" | jq -r .code)
+          curl -sS "$url/v1/share/who/$cb"; echo
+          j friends "{\"key\":\"$a\",\"friends\":[\"$cb\"]}"
+          j send "{\"key\":\"$a\",\"to\":\"$cb\",\"item\":{\"title\":\"Uncle Buck\",\"year\":\"1989\",\"series\":false}}"
+          inbox=$(curl -sS "$url/v1/share/inbox/$b"); echo "inbox: $inbox"
+          id=$(echo "$inbox" | jq -r '.items[0].id')
+          [ "$(echo "$inbox" | jq -r '.items[0].title')" = "Uncle Buck" ] && echo "SHARE TEST PASSED" || { echo "::error::share test failed"; exit 1; }
+          j dismiss "{\"key\":\"$b\",\"id\":\"$id\"}"
