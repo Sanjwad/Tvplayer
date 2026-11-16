@@ -74,6 +74,21 @@ async function friendList(env, codes) {
   }
   return out;
 }
+// Two TVs can talk to different Cloudflare locations, and a location may briefly see an older copy
+// of a record, so an "accept" can be lost on one side. Repair it here: if the other person already
+// lists me as a friend, we're friends.
+async function repair(env, key, rec) {
+  let changed = false;
+  for (const c of [...(rec.requestsOut || []), ...(rec.requestsIn || [])]) {
+    const o = await other(env, c);
+    if (o && (o.rec.friends || []).includes(rec.code)) {
+      rec.requestsOut = without(rec.requestsOut, c); rec.requestsIn = without(rec.requestsIn, c);
+      rec.friends = withx(rec.friends, c); changed = true;
+    }
+  }
+  if (changed) await putJ(env, "share:me:" + key, rec);
+  return rec;
+}
 async function state(env, rec) {
   return { code: rec.code, name: rec.name, friends: await friendList(env, rec.friends),
            requestsIn: await friendList(env, rec.requestsIn), requestsOut: await friendList(env, rec.requestsOut) };
@@ -111,12 +126,13 @@ async function share(req, env, rest) {
       await putJ(env, "share:me:" + body.key, rec);
       await putJ(env, "share:code:" + rec.code, { key: body.key, name });
     }
-    return json(await state(env, rec));
+    return json(await state(env, await repair(env, body.key, rec)));
   }
 
   if (rest.startsWith("me/") && req.method === "GET") {
-    const rec = await me(env, rest.slice(3));
-    return new Response(JSON.stringify(rec ? await state(env, rec) : {}),
+    const key = rest.slice(3);
+    const rec = await me(env, key);
+    return new Response(JSON.stringify(rec ? await state(env, await repair(env, key, rec)) : {}),
       { headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" } });
   }
 
@@ -135,7 +151,7 @@ async function share(req, env, rest) {
     const o = CODE.test(to) ? await other(env, to) : null;
     if (!o) return json({ error: "No one has the code " + to + "." }, 404);
     if ((rec.friends || []).includes(to)) return json(await state(env, rec));
-    if ((rec.requestsIn || []).includes(to)) {
+    if ((rec.requestsIn || []).includes(to) || (o.rec.friends || []).includes(rec.code)) {
       // They'd already asked me: that's a yes from both sides.
       rec.requestsIn = without(rec.requestsIn, to); rec.friends = withx(rec.friends, to);
       o.rec.requestsOut = without(o.rec.requestsOut, rec.code); o.rec.friends = withx(o.rec.friends, rec.code);
@@ -180,9 +196,15 @@ async function share(req, env, rest) {
     const rec = await me(env, body.key);
     if (!rec) throw new Error("set up your friend code first");
     const to = String(body.to || "").toUpperCase().trim();
-    if (!(rec.friends || []).includes(to)) return json({ error: "You can only send to friends who have accepted." }, 403);
     const target = CODE.test(to) ? await getJ(env, "share:code:" + to) : null;
     if (!target) return json({ error: "No one has the code " + to + "." }, 404);
+    if (!(rec.friends || []).includes(to)) {
+      const theirs = await getJ(env, "share:me:" + target.key);
+      if (!theirs || !(theirs.friends || []).includes(rec.code))
+        return json({ error: "You can only send to friends who have accepted." }, 403);
+      rec.friends = withx(rec.friends, to); rec.requestsOut = without(rec.requestsOut, to); rec.requestsIn = without(rec.requestsIn, to);
+      await putJ(env, "share:me:" + body.key, rec);
+    }
     const it = body.item || {};
     const item = {
       id: crypto.randomUUID(), at: Date.now(), from: rec.name, fromCode: rec.code,
