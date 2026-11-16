@@ -73,6 +73,8 @@ jobs:
           got=$(curl -fsS "$url/v1/$k"); echo "read back: $got"
           [ "$got" = '{"v":1,"items":{"test":1}}' ] && echo "SYNC TEST PASSED" || { echo "::error::sync test failed"; exit 1; }
       - name: Share test
+        # Once only (both branches deploy together, and two tests at once would trip over each other).
+        if: github.ref == 'refs/heads/main'
         run: |
           url="https://sanjtv-sync.${{ env.SUB || 'sanjwad' }}.workers.dev"
           a=$(printf 'a%.0s' $(seq 64)); b=$(printf 'b%.0s' $(seq 64))
