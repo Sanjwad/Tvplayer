@@ -1492,7 +1492,7 @@ private fun UpNextDialog(label: String, onPlay: () -> Unit, onCancel: () -> Unit
 
 /** Hold-OK menu for marking episodes watched. Ignores the held OK that opened it, so nothing gets picked by accident. */
 @Composable
-private fun WatchedMenu(title: String, options: List<Pair<String, () -> Unit>>, onClose: () -> Unit) {
+internal fun WatchedMenu(title: String, options: List<Pair<String, () -> Unit>>, onClose: () -> Unit) {
     val first = remember { FocusRequester() }
     var armed by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { delay(100); runCatching { first.requestFocus() } }

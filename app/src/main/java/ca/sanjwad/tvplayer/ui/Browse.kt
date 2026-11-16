@@ -947,6 +947,8 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
     }
 
     var menuFor by remember { mutableStateOf<ca.sanjwad.tvplayer.Progress?>(null) }
+    // Sent-to-you titles stay until someone chooses to remove them (hold OK, then confirm).
+    var removeSent by remember { mutableStateOf<ca.sanjwad.tvplayer.Share.Item?>(null) }
 
     fun resumePlay(p: ca.sanjwad.tvplayer.Progress, fromStart: Boolean = false) {
         scope.launch {
@@ -997,10 +999,7 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
                             val v = VodItem(it.id, it.title, "", it.poster, "", it.series, it.year, "")
                             PosterTile(v, onFocus = {
                                 setHero(v.copy(description = "Sent by ${it.from}" + if (it.note.isNotBlank()) ": \"${it.note}\"" else "."))
-                            }, badge = "From ${it.from}", onLongClick = {
-                                ca.sanjwad.tvplayer.Share.dismiss(it.id)
-                                android.widget.Toast.makeText(ctx, "Removed ${it.title}", android.widget.Toast.LENGTH_SHORT).show()
-                            }) {
+                            }, badge = "From ${it.from}", onLongClick = { removeSent = it }) {
                                 // Find it in this TV's own library (friends may have a different provider).
                                 scope.launch {
                                     val type = if (it.series) showType else movieType
@@ -1052,6 +1051,15 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
             }
             item { showRow("Caught up — waiting for new episodes", caughtUp) }
         }
+    }
+    removeSent?.let { r ->
+        WatchedMenu("Remove \"${r.title}\" from Sent to you?", listOf(
+            "Keep it" to {},
+            "Remove" to {
+                ca.sanjwad.tvplayer.Share.dismiss(r.id)
+                android.widget.Toast.makeText(ctx, "Removed ${r.title}", android.widget.Toast.LENGTH_SHORT).show()
+            },
+        ), onClose = { removeSent = null })
     }
     menuFor?.let { p ->
         ResumeMenu(p,
