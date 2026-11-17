@@ -62,6 +62,9 @@ object Share {
     /** Changes the name friends see, and gives a new code to match it; friends keep you either way. */
     fun rename(name: String) = apply(post("me", JSONObject().put("key", key).put("name", name).put("recode", true)))
 
+    /** Changes the name friends see, with a new code to match it (friends keep you). */
+    fun rename(name: String) = apply(post("rename", JSONObject().put("key", key).put("name", name)))
+
     /** Re-reads my friends and requests (cheap; done when the app comes back to the front). */
     fun refreshMe() {
         val k = key ?: return

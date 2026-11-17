@@ -12,6 +12,7 @@
 //   POST /v1/share/me        {key, name}            -> my state (creates my code the first time)
 //   GET  /v1/share/me/<key>                         -> my state (read only), or {} if not set up
 //        state = {code, name, friends:[{code,name}], requestsIn:[…], requestsOut:[…]}
+//   POST /v1/share/rename    {key, name}            -> state  (new name and a new code to match; friends keep you)
 //   GET  /v1/share/who/<CODE>                       -> {code, name}  (to check a code before adding)
 //   POST /v1/share/request   {key, to:CODE}         -> state  (accepts at once if they'd already asked me)
 //   POST /v1/share/respond   {key, code, accept}    -> state
@@ -151,6 +152,39 @@ async function share(req, env, rest) {
       await putJ(env, "share:code:" + rec.code, { key: body.key, name });
     }
     return json(await state(env, await repair(env, body.key, rec)));
+  }
+
+  if (rest === "rename" && req.method === "POST") {
+    const rec = await me(env, body.key);
+    if (!rec) throw new Error("set up your friend code first");
+    const name = cleanName(body.name) || rec.name;
+    const stem = name.normalize("NFD").replace(/[^A-Za-z]/g, "").toUpperCase().slice(0, 8) || "TV";
+    const old = rec.code;
+    let code = old;
+    if (!old.startsWith(stem + "-")) {
+      code = null;
+      for (let i = 0; i < 20 && !code; i++) {
+        const c = stem + "-" + String(1000 + Math.floor(Math.random() * 9000));
+        if (!(await env.SYNC.get("share:code:" + c))) code = c;
+      }
+      if (!code) throw new Error("no free code");
+    }
+    rec.name = name; rec.code = code;
+    await putJ(env, "share:me:" + body.key, rec);
+    await putJ(env, "share:code:" + code, { key: body.key, name });
+    if (code !== old) {
+      // The old code keeps working (pointing at me) so nothing anyone saved breaks…
+      await putJ(env, "share:code:" + old, { key: body.key, name, movedTo: code });
+      // …and friends' lists are switched to the new one.
+      for (const c of new Set([...(rec.friends || []), ...(rec.requestsIn || []), ...(rec.requestsOut || [])])) {
+        const o = await other(env, c);
+        if (!o) continue;
+        const swap = l => (l || []).map(x => x === old ? code : x);
+        o.rec.friends = swap(o.rec.friends); o.rec.requestsIn = swap(o.rec.requestsIn); o.rec.requestsOut = swap(o.rec.requestsOut);
+        await putJ(env, "share:me:" + o.key, o.rec);
+      }
+    }
+    return json(await state(env, rec));
   }
 
   if (rest.startsWith("me/") && req.method === "GET") {
