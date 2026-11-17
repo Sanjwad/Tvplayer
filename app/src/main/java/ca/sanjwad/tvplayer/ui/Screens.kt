@@ -1,5 +1,6 @@
 package ca.sanjwad.tvplayer.ui
 
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -866,9 +867,12 @@ private fun SideList(entries: List<Genre>, selected: String?, width: Int, collap
     // them the room, and open again when you go back to them (Left).
     var hasFocus by remember { mutableStateOf(true) }
     val open = !collapsible || hasFocus
-    val w by androidx.compose.animation.core.animateDpAsState(if (open) width.dp else 52.dp, label = "groups")
+    val w by androidx.compose.animation.core.animateDpAsState(if (open) width.dp else 14.dp, label = "groups")
+    // Folded: just a plain slim bar (the list is still there underneath, so Left goes straight back into it).
+    Box(Modifier.width(w).fillMaxHeight()) {
+    if (!open) Box(Modifier.fillMaxSize().clip(RoundedCornerShape(7.dp)).background(Color(0x22FFFFFF)))
     LazyColumn(
-        Modifier.width(w).fillMaxHeight()
+        Modifier.fillMaxSize().alpha(if (open) 1f else 0f)
             .onFocusChanged { hasFocus = it.hasFocus }
             .focusProperties { enter = { if (shownId != null && shownId == selected) sel else FocusRequester.Default } }
             .focusGroup(),
@@ -879,11 +883,12 @@ private fun SideList(entries: List<Genre>, selected: String?, width: Int, collap
             if (isSel) androidx.compose.runtime.DisposableEffect(g.id) { shownId = g.id; onDispose { if (shownId == g.id) shownId = null } }
             FocusBox(onClick = { onPick(g) }, modifier = Modifier.fillMaxWidth().then(if (isSel) Modifier.focusRequester(sel) else Modifier),
                 selected = isSel) {
-                Text(if (open) g.title else g.title.trim().let { t -> if (t.isEmpty()) "•" else t.substring(0, t.offsetByCodePoints(0, 1)) }, Modifier.padding(12.dp), fontSize = 17.sp,
+                Text(g.title, Modifier.padding(12.dp), fontSize = 17.sp,
                     color = if (g.id == FAV_ID || g.id == LIST_ID) Gold else Color.White,
-                    maxLines = 1, overflow = if (open) TextOverflow.Ellipsis else TextOverflow.Clip)
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
+    }
     }
 }
 
