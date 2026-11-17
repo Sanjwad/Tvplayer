@@ -102,6 +102,9 @@ class VodState(val kind: String) {
     var type = "vod"
     /** Set by "See all": put the cursor on the first title once the grid has loaded. */
     var focusGridOnce = false
+    /** A row opened full screen that isn't a single category (Recently added, Trending…): its title and titles. */
+    var fixedTitle by mutableStateOf<String?>(null)
+    var fixedItems by mutableStateOf<List<VodItem>?>(null)
     /** Where the rows were when "See all" was pressed, so Back returns to the same spot. */
     var rowsIndex = 0
     var rowsOffset = 0
@@ -853,14 +856,20 @@ fun ChannelGuide(c: ca.sanjwad.tvplayer.stalker.Channel) {
 
 @Composable
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
-private fun SideList(entries: List<Genre>, selected: String?, width: Int, onPick: (Genre) -> Unit) {
+private fun SideList(entries: List<Genre>, selected: String?, width: Int, collapsible: Boolean = false, onPick: (Genre) -> Unit) {
     // Moving into this column from either side lands on the category you're viewing, not a random one.
     val sel = remember { FocusRequester() }
     var shownId by remember { mutableStateOf<String?>(null) }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState(
         entries.indexOfFirst { it.id == selected }.coerceAtLeast(0))
+    // Like TiVimate: the groups fold to a narrow strip while you're in the channels or guide, giving
+    // them the room, and open again when you go back to them (Left).
+    var hasFocus by remember { mutableStateOf(true) }
+    val open = !collapsible || hasFocus
+    val w by androidx.compose.animation.core.animateDpAsState(if (open) width.dp else 52.dp, label = "groups")
     LazyColumn(
-        Modifier.width(width.dp).fillMaxHeight()
+        Modifier.width(w).fillMaxHeight()
+            .onFocusChanged { hasFocus = it.hasFocus }
             .focusProperties { enter = { if (shownId != null && shownId == selected) sel else FocusRequester.Default } }
             .focusGroup(),
         state = listState, verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -870,9 +879,9 @@ private fun SideList(entries: List<Genre>, selected: String?, width: Int, onPick
             if (isSel) androidx.compose.runtime.DisposableEffect(g.id) { shownId = g.id; onDispose { if (shownId == g.id) shownId = null } }
             FocusBox(onClick = { onPick(g) }, modifier = Modifier.fillMaxWidth().then(if (isSel) Modifier.focusRequester(sel) else Modifier),
                 selected = isSel) {
-                Text(g.title, Modifier.padding(12.dp), fontSize = 17.sp,
+                Text(if (open) g.title else g.title.trim().let { t -> if (t.isEmpty()) "•" else t.substring(0, t.offsetByCodePoints(0, 1)) }, Modifier.padding(12.dp), fontSize = 17.sp,
                     color = if (g.id == FAV_ID || g.id == LIST_ID) Gold else Color.White,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    maxLines = 1, overflow = if (open) TextOverflow.Ellipsis else TextOverflow.Clip)
             }
         }
     }
@@ -936,7 +945,7 @@ fun LiveScreen(s: LiveState) {
                 return
             }
             Row(Modifier.fillMaxSize()) {
-                SideList(side, s.genre, 280) { if (it.id != SEARCH_ID) s.query = ""; s.genre = it.id }
+                SideList(side, s.genre, 280, collapsible = s.genre != EDIT_ID) { if (it.id != SEARCH_ID) s.query = ""; s.genre = it.id }
                 Spacer(Modifier.width(16.dp))
                 if (s.genre == EDIT_ID) Column(Modifier.weight(1f).fillMaxHeight()) {
                     ManageGroups("live", s.genres) { s.genre = "*" }
@@ -1117,6 +1126,20 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
         s.searching = false
     }
 
+    // A row opened full screen from its heading (Recently added, Trending…): just those titles.
+    s.fixedItems?.let { fixed ->
+        Column(Modifier.fillMaxSize()) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(s.fixedTitle.orEmpty(), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text("   ${fixed.size} titles", fontSize = 14.sp, color = TextDim)
+            }
+            Spacer(Modifier.height(12.dp))
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                PosterGrid(fixed, onOpen, focusFirst = s.focusGridOnce, onFocused = { s.focusGridOnce = false })
+            }
+        }
+        return
+    }
     val label = kindLabel(s.kind)
     // "See all": just the category's titles, full width, with its name on top (Back returns to the rows).
     val catTitle = s.categories.firstOrNull { it.id == s.category }?.let { groupLabels(s.kind, s.categories)[it.id] ?: it.title }.orEmpty()

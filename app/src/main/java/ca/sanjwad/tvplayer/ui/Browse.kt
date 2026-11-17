@@ -295,8 +295,21 @@ private fun PosterRow(
     onNearEnd: (() -> Unit)? = null,
     /** Movies/TV rows: where to remember this row's place when a title is opened. */
     vs: VodState? = null, rowKey: String? = null,
+    /** Pressing the row's heading (reached with Up from the row's first visible title) opens it full screen. */
+    onTitleClick: (() -> Unit)? = null,
 ) {
-    Column {
+    // The heading only takes the cursor from inside its own row, from the leftmost title on screen, so
+    // moving up and down between rows still takes one press per row.
+    var rowHasFocus by remember { mutableStateOf(false) }
+    var atLeft by remember { mutableStateOf(false) }
+    Column(Modifier.onFocusChanged { rowHasFocus = it.hasFocus }) {
+        if (onTitleClick != null && !list.isNullOrEmpty()) {
+            FocusBox(onClick = onTitleClick, modifier = Modifier.padding(bottom = 4.dp)
+                .focusProperties { canFocus = rowHasFocus && atLeft }, shape = RoundedCornerShape(6.dp)) {
+                Text("$title  ›", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+            }
+        } else
         Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
             modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
         when {
@@ -323,7 +336,7 @@ private fun PosterRow(
               }
               LazyRow(state = rowState, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(list.size) { i -> val item = list[i]
-                    PosterTile(item, { onFocusItem(item); onRowFocus() }, badgeFor(item),
+                    PosterTile(item, { onFocusItem(item); onRowFocus(); atLeft = i <= rowState.firstVisibleItemIndex }, badgeFor(item),
                         (if (i == 0) firstItem else Modifier).then(if (i == restoreIdx) Modifier.focusRequester(restoreFr) else Modifier)) {
                         if (vs != null && rowKey != null) {
                             vs.rowScroll[rowKey] = rowState.firstVisibleItemIndex to rowState.firstVisibleItemScrollOffset
@@ -403,7 +416,7 @@ fun VodTab(s: VodState, onOpen: (VodItem) -> Unit) {
         BackHandler { s.editMode = false }
         ManageGroups(s.kind, s.categories) { s.editMode = false }
     } else if (s.gridMode) {
-        BackHandler { s.gridMode = false }
+        BackHandler { s.gridMode = false; s.fixedItems = null; s.fixedTitle = null }
         VodScreen(s, onOpen)
     } else {
         androidx.compose.runtime.key(s.resetRows) { VodRows(s, onOpen) }
@@ -559,7 +572,15 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
         onOpen(it)
     }
 
+    /** A row's heading pressed: that row full screen. */
+    fun openFixed(title: String, items: List<VodItem>?) {
+        if (items.isNullOrEmpty()) return
+        s.rowsIndex = listState.firstVisibleItemIndex; s.rowsOffset = listState.firstVisibleItemScrollOffset
+        s.fixedTitle = title.trimStart { !it.isLetterOrDigit() }; s.fixedItems = items
+        s.gridMode = true; s.focusGridOnce = true
+    }
     fun openGrid(categoryId: String) {
+        s.fixedItems = null; s.fixedTitle = null
         s.rowsIndex = listState.firstVisibleItemIndex; s.rowsOffset = listState.firstVisibleItemScrollOffset
         s.returnTo = categoryId
         s.category = categoryId; s.items = emptyList(); s.total = 0; s.page = 0
@@ -621,14 +642,16 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                     trendRows.forEachIndexed { pos, (i, t) ->
                         item("trend$i") {
                             CompositionLocalProvider(LocalBringIntoViewSpec provides rowSpec) {
-                            PosterRow(t.first, t.second, setHero, openTitle, onRowFocus = { alignRow(pos) }, vs = s, rowKey = "trend$i") }
+                            PosterRow(t.first, t.second, setHero, openTitle, onRowFocus = { alignRow(pos) }, vs = s, rowKey = "trend$i",
+                                onTitleClick = { openFixed(t.first, t.second) }) }
                         }
                     }
                     val recent = s.recent
                     val recentShown = recent == null || recent.isNotEmpty()
                     if (recentShown) item("recent") {
                         CompositionLocalProvider(LocalBringIntoViewSpec provides rowSpec) {
-                        PosterRow("🆕  Recently added", recent, setHero, openTitle, onRowFocus = { alignRow(trendRows.size) }, vs = s, rowKey = "recent") }
+                        PosterRow("🆕  Recently added", recent, setHero, openTitle, onRowFocus = { alignRow(trendRows.size) }, vs = s, rowKey = "recent",
+                            onTitleClick = { openFixed("Recently added", recent) }) }
                     }
                     itemsIndexed(rows, key = { _, r -> r.second.first().id }) { ci, (title, members) ->
                         // One category: its own row. Several with the same heading: one row that takes a page from each in turn.
@@ -638,6 +661,7 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                         PosterRow(title, s.rowItems[key], setHero, openTitle, onSeeAll = null, vs = s, rowKey = key,
                             onNearEnd = { rowScope.launch { if (members.size == 1) VodLoader.more(s, key) else VodLoader.mergedMore(s, key, members.map { it.id }) } },
                             focusSeeAll = s.returnTo == key, onSeeAllFocused = { s.returnTo = null },
+                            onTitleClick = { if (members.size == 1) openGrid(key) else openFixed(title, s.rowItems[key]) },
                             onRowFocus = { alignRow(trendRows.size + (if (recentShown) 1 else 0) + ci) }) }
                     }
                 }
