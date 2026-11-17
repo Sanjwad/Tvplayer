@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -65,8 +68,11 @@ fun GuideGrid(channels: List<Channel>, onCatchup: ((Channel, Programme) -> Unit)
     var focusAt by remember { mutableStateOf<Pair<String, Long>?>(null) }
 
     Column(Modifier.fillMaxSize()) {
-        // Details of the highlighted programme, like TiVimate's top panel.
-        Column(Modifier.fillMaxWidth().height(78.dp)) {
+        // Details of the highlighted programme, like TiVimate's top panel, with a live preview of the
+        // channel in the corner once the cursor rests on it.
+        var previewOff by remember { mutableStateOf(false) }
+        Row(Modifier.fillMaxWidth().height(if (previewOff) 78.dp else 132.dp)) {
+          Column(Modifier.weight(1f).fillMaxHeight()) {
             val f = focused
             val p = f?.second
             if (f == null) {
@@ -78,9 +84,14 @@ fun GuideGrid(channels: List<Channel>, onCatchup: ((Channel, Programme) -> Unit)
                     fontSize = 13.sp, color = Accent,
                 )
                 if (!p?.description.isNullOrBlank()) {
-                    Text(p!!.description, fontSize = 13.sp, color = Color(0xFFD5DAE1), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(p!!.description, fontSize = 13.sp, color = Color(0xFFD5DAE1), maxLines = if (previewOff) 2 else 4, overflow = TextOverflow.Ellipsis)
                 }
             }
+          }
+          if (!previewOff) {
+            Spacer(Modifier.width(12.dp))
+            LivePreview(focused?.first, Modifier.height(124.dp).aspectRatio(16f / 9f)) { previewOff = true }
+          }
         }
 
         BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -214,5 +225,65 @@ private fun ProgrammeRow(
             Spacer(Modifier.width(2.dp))
             cursor = e
         }
+    }
+}
+
+/**
+ * A small live picture of [channel] for the guide: starts after the cursor has rested on a channel for a
+ * moment, stops when it moves on, and lets go of the stream whenever the screen is left (so the full
+ * player can use the connection). [onUnavailable]: the account can only play one stream at a time.
+ */
+@Composable
+private fun LivePreview(channel: Channel?, modifier: Modifier, onUnavailable: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val owner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    var visible by remember { mutableStateOf(true) }
+    androidx.compose.runtime.DisposableEffect(owner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) visible = false
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) visible = true
+        }
+        owner.lifecycle.addObserver(obs)
+        onDispose { owner.lifecycle.removeObserver(obs) }
+    }
+    val player = remember {
+        val c = Session.client
+        val serving = c?.let { ca.sanjwad.tvplayer.stalker.mainOf(it) }
+        val headers = c?.streamHeaders().orEmpty()
+        val host = c?.portalHost
+        val okhttp = okhttp3.OkHttpClient.Builder()
+            .apply { if (serving is ca.sanjwad.tvplayer.stalker.StalkerClient) dns(ca.sanjwad.tvplayer.stalker.Ipv4First) }
+            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS).readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val b = chain.request().newBuilder().header("User-Agent", ca.sanjwad.tvplayer.stalker.Net.UA)
+                if (chain.request().url.host == host) headers.forEach { (k, v) -> b.header(k, v) }
+                chain.proceed(b.build())
+            }.build()
+        androidx.media3.exoplayer.ExoPlayer.Builder(ctx)
+            .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(
+                androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(okhttp)))
+            .build().apply { volume = 0.6f }
+    }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { player.release() } }
+    var state by remember { mutableStateOf("") }
+    LaunchedEffect(channel?.id, visible) {
+        player.stop(); player.clearMediaItems()
+        if (channel == null || !visible) { state = ""; return@LaunchedEffect }
+        // A one-stream account can't preview and play at once.
+        val xt = Session.client?.let { ca.sanjwad.tvplayer.stalker.mainOf(it) } as? ca.sanjwad.tvplayer.stalker.XtreamClient
+        if (xt?.maxConnections == 1) { onUnavailable(); return@LaunchedEffect }
+        state = "…"
+        delay(900) // only once the cursor rests here
+        val url = withContext(Dispatchers.IO) { runCatching { Session.client?.createLink("itv", channel.cmd, "", null) }.getOrNull() }
+        if (url == null) { state = "No preview"; return@LaunchedEffect }
+        player.setMediaItem(androidx.media3.common.MediaItem.fromUri(url))
+        player.prepare(); player.playWhenReady = true
+        state = ""
+    }
+    Box(modifier.clip(RoundedCornerShape(8.dp)).background(Color.Black)) {
+        androidx.compose.ui.viewinterop.AndroidView(factory = { c ->
+            androidx.media3.ui.PlayerView(c).apply { useController = false; this.player = player; isFocusable = false }
+        }, modifier = Modifier.fillMaxSize())
+        if (state.isNotEmpty()) Text(state, Modifier.align(Alignment.Center), fontSize = 13.sp, color = TextDim)
     }
 }
