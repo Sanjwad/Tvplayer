@@ -59,9 +59,6 @@ object Share {
     /** Creates my friend code (or keeps the name up to date). */
     fun setUp(name: String) = apply(post("me", JSONObject().put("key", key).put("name", name)))
 
-    /** Changes the name friends see, and gives a new code to match it; friends keep you either way. */
-    fun rename(name: String) = apply(post("me", JSONObject().put("key", key).put("name", name).put("recode", true)))
-
     /** Changes the name friends see, with a new code to match it (friends keep you). */
     fun rename(name: String) = apply(post("rename", JSONObject().put("key", key).put("name", name)))
 

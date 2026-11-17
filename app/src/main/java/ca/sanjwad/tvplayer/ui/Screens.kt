@@ -1782,23 +1782,6 @@ private fun FriendsSettings(prefs: ca.sanjwad.tvplayer.Prefs, w: Modifier) {
             Text(code, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Text("   Give it to friends so they can send you things.", fontSize = 13.sp, color = TextDim)
         }
-        // Got the name wrong? Change it (and get a code to match).
-        var renaming by remember { mutableStateOf(false) }
-        if (!renaming) {
-            Row(w, verticalAlignment = Alignment.CenterVertically) {
-                Text("Friends see you as ${S.myName.value}", fontSize = 14.sp, color = TextDim, modifier = Modifier.weight(1f))
-                TvButton("Change name", onClick = { name = S.myName.value; renaming = true })
-            }
-        } else Row(w, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TvTextField(value = name, onValueChange = { name = it }, label = { Text("Your name (what friends will see)") },
-                singleLine = true, modifier = Modifier.weight(1f))
-            TvButton("Save", onClick = {
-                if (name.isBlank()) return@TvButton
-                prefs.shareName = name; renaming = false
-                run { S.rename(name); "Done. Your friend code is now ${S.myCode.value}." }
-            })
-            TvButton("Cancel", onClick = { renaming = false })
-        }
         // Change the name friends see (a new code to match is made, and friends stay friends).
         var renaming by remember { mutableStateOf(false) }
         if (!renaming) {
