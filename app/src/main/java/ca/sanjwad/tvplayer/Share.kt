@@ -56,8 +56,11 @@ object Share {
     }
     private var poller: java.util.concurrent.ScheduledExecutorService? = null
 
-    /** Creates (or renames) my friend code. */
+    /** Creates my friend code (or keeps the name up to date). */
     fun setUp(name: String) = apply(post("me", JSONObject().put("key", key).put("name", name)))
+
+    /** Changes the name friends see, and gives a new code to match it; friends keep you either way. */
+    fun rename(name: String) = apply(post("me", JSONObject().put("key", key).put("name", name).put("recode", true)))
 
     /** Re-reads my friends and requests (cheap; done when the app comes back to the front). */
     fun refreshMe() {

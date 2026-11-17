@@ -125,6 +125,28 @@ async function share(req, env, rest) {
       await putJ(env, "share:code:" + code, { key: body.key, name });
     } else if (rec.name !== name) {
       rec.name = name;
+      // Renamed: a new code to match the new name (SANJ-3111 → BRYAN-4820), and friends' lists updated.
+      const stem = name.normalize("NFD").replace(/[^A-Za-z]/g, "").toUpperCase().slice(0, 8) || "TV";
+      const oldCode = rec.code;
+      if (body.recode && !oldCode.startsWith(stem + "-")) {
+        let code = null;
+        for (let i = 0; i < 20 && !code; i++) {
+          const c = stem + "-" + String(1000 + Math.floor(Math.random() * 9000));
+          if (!(await env.SYNC.get("share:code:" + c))) code = c;
+        }
+        if (code) {
+          rec.code = code;
+          await putJ(env, "share:code:" + code, { key: body.key, name });
+          for (const c of new Set([...(rec.friends || []), ...(rec.requestsIn || []), ...(rec.requestsOut || [])])) {
+            const o = await other(env, c);
+            if (!o) continue;
+            const swap = l => (l || []).map(x => x === oldCode ? code : x);
+            o.rec.friends = swap(o.rec.friends); o.rec.requestsIn = swap(o.rec.requestsIn); o.rec.requestsOut = swap(o.rec.requestsOut);
+            await putJ(env, "share:me:" + o.key, o.rec);
+          }
+          await env.SYNC.delete("share:code:" + oldCode);
+        }
+      }
       await putJ(env, "share:me:" + body.key, rec);
       await putJ(env, "share:code:" + rec.code, { key: body.key, name });
     }
