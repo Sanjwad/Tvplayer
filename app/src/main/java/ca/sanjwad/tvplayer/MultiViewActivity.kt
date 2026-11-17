@@ -67,6 +67,7 @@ import androidx.media3.ui.PlayerView
 import ca.sanjwad.tvplayer.stalker.Channel
 import ca.sanjwad.tvplayer.stalker.Net
 import ca.sanjwad.tvplayer.stalker.XtreamClient
+import ca.sanjwad.tvplayer.stalker.main
 import ca.sanjwad.tvplayer.ui.Accent
 import ca.sanjwad.tvplayer.ui.AppTheme
 import ca.sanjwad.tvplayer.ui.Bg
@@ -116,7 +117,7 @@ class MultiViewActivity : ComponentActivity() {
         val c = Session.client ?: return@withContext null
         runCatching { c.createLink("itv", ch.cmd, "", null) }.getOrNull()?.let {
             // Same as single-screen live TV: Xtream channels as one continuous .ts stream, HLS as the backup.
-            if (c is XtreamClient && it.endsWith(".m3u8") && ch.id !in hlsChannels) (it.removeSuffix(".m3u8") + ".ts") to it
+            if ((c?.let { cc -> (cc as? ca.sanjwad.tvplayer.stalker.MultiSource)?.partFor(ch.id)?.src ?: cc }) is XtreamClient && it.endsWith(".m3u8") && ch.id !in hlsChannels) (it.removeSuffix(".m3u8") + ".ts") to it
             else it to null
         }
     }
@@ -131,7 +132,7 @@ class MultiViewActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val all = Session.liveAll
         val first = intent.getStringExtra("channel_id")?.let { id -> all.firstOrNull { it.id == id } }
-        val maxConn = (Session.client as? XtreamClient)?.maxConnections ?: 0
+        val maxConn = (Session.client?.main() as? XtreamClient)?.maxConnections ?: 0
         setContent {
             val d = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(d.density * 0.85f, d.fontScale)) {

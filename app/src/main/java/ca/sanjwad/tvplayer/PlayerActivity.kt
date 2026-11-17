@@ -1,5 +1,6 @@
 package ca.sanjwad.tvplayer
 
+import ca.sanjwad.tvplayer.stalker.serving
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.WindowManager
@@ -108,12 +109,17 @@ class PlayerActivity : ComponentActivity() {
 
         // Portal headers go only to the portal itself; video servers get a plain request,
         // and any cookies they hand out are kept for the follow-up requests (playlists, segments).
-        val client = Session.client
+        // With several accounts, use the one that serves this channel or title (its headers and quirks).
+        val client = Session.client.let { c ->
+            val ch = Session.channels.getOrNull(intent.getIntExtra("live_index", -1))
+            if (c is ca.sanjwad.tvplayer.stalker.MultiSource && ch != null) c.partFor(ch.id).src
+            else c?.serving()
+        }
         val portalHost = client?.portalHost
         val portalHeaders = client?.streamHeaders() ?: emptyMap()
         val okhttp = OkHttpClient.Builder()
             .cookieJar(MemoryCookieJar())
-            .apply { if (Session.client is ca.sanjwad.tvplayer.stalker.StalkerClient) dns(ca.sanjwad.tvplayer.stalker.Ipv4First) }
+            .apply { if (client is ca.sanjwad.tvplayer.stalker.StalkerClient) dns(ca.sanjwad.tvplayer.stalker.Ipv4First) }
             .followRedirects(true)
             .followSslRedirects(true)
             .connectTimeout(15, TimeUnit.SECONDS)

@@ -112,6 +112,36 @@ class Prefs(ctx: Context) {
         set(v) = sp.edit().putString("st_device_id2", v).apply()
 
     /** Identifies this login for per-login favourites and My List. */
+    /** Extra provider accounts (up to 2 Xtream and 2 Stalker in all, counting the main one). */
+    data class ExtraAccount(
+        val label: String, val stalker: Boolean,
+        val server: String = "", val user: String = "", val pass: String = "",
+        val portal: String = "", val mac: String = "",
+    )
+    var extraAccounts: List<ExtraAccount>
+        get() = runCatching {
+            val a = org.json.JSONArray(sp.getString("extra_accounts", "[]"))
+            (0 until a.length()).map { a.getJSONObject(it) }.map { o ->
+                ExtraAccount(o.optString("label"), o.optBoolean("stalker"), o.optString("server"), o.optString("user"),
+                    o.optString("pass"), o.optString("portal"), o.optString("mac"))
+            }
+        }.getOrDefault(emptyList())
+        set(v) = sp.edit().putString("extra_accounts", org.json.JSONArray(v.map { e ->
+            org.json.JSONObject().put("label", e.label).put("stalker", e.stalker).put("server", e.server).put("user", e.user)
+                .put("pass", e.pass).put("portal", e.portal).put("mac", e.mac)
+        }).toString()).apply()
+    /** A made-up MAC address for an extra Stalker account (a different one for each). */
+    fun extraMac(n: Int): String = sp.getString("extra_mac_$n", null) ?: run {
+        val r = java.security.SecureRandom()
+        val mac = "00:1A:79:" + (1..3).joinToString(":") { "%02X".format(r.nextInt(256)) }
+        sp.edit().putString("extra_mac_$n", mac).apply()
+        mac
+    }
+    /** What the main account is called next to its groups once there are several. */
+    var mainLabel: String
+        get() = sp.getString("main_label", "").orEmpty().ifBlank { "Main" }
+        set(v) = sp.edit().putString("main_label", v.trim()).apply()
+
     val accountKey: String
         get() = if (isStalker) "${stPortal.trim()}|${stMac.trim().uppercase()}" else "$xtServer|$xtUser"
 

@@ -775,8 +775,8 @@ fun GlobalSearch(movieType: String, showType: String, onOpen: (type: String, ite
     Column(Modifier.fillMaxSize()) {
         SearchField(query, { query = it; wantResults = false }, "Search channels, movies and TV shows", Modifier.focusRequester(fr),
             onSearch = { wantResults = true })
-        val indexStatus by produceState((Session.client as? ca.sanjwad.tvplayer.stalker.StalkerClient)?.indexStatus.orEmpty()) {
-            while (true) { value = (Session.client as? ca.sanjwad.tvplayer.stalker.StalkerClient)?.indexStatus.orEmpty(); delay(3000) }
+        val indexStatus by produceState((Session.client?.let { ca.sanjwad.tvplayer.stalker.mainOf(it) } as? ca.sanjwad.tvplayer.stalker.StalkerClient)?.indexStatus.orEmpty()) {
+            while (true) { value = (Session.client?.let { ca.sanjwad.tvplayer.stalker.mainOf(it) } as? ca.sanjwad.tvplayer.stalker.StalkerClient)?.indexStatus.orEmpty(); delay(3000) }
         }
         if (indexStatus.isNotBlank()) {
             Spacer(Modifier.height(6.dp))

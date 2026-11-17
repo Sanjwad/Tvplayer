@@ -443,9 +443,9 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
         Spacer(Modifier.height(8.dp))
         Column(w.clip(RoundedCornerShape(10.dp)).background(Panel).padding(18.dp)) {
             if (!editing) {
-                val exp = (Session.client as? XtreamClient)?.expiry?.toLongOrNull()?.let {
+                val exp = (Session.client?.let { ca.sanjwad.tvplayer.stalker.mainOf(it) } as? XtreamClient)?.expiry?.toLongOrNull()?.let {
                     java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(it * 1000))
-                } ?: (Session.client as? ca.sanjwad.tvplayer.stalker.StalkerClient)?.expiry?.takeIf { it.isNotBlank() }
+                } ?: (Session.client?.let { ca.sanjwad.tvplayer.stalker.mainOf(it) } as? ca.sanjwad.tvplayer.stalker.StalkerClient)?.expiry?.takeIf { it.isNotBlank() }
                 val server = if (prefs.isStalker) prefs.stPortal else prefs.xtServer
                 Text(server.removePrefix("http://").removePrefix("https://"), fontSize = 18.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(4.dp))
@@ -482,6 +482,12 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
                 Spacer(Modifier.height(12.dp))
                 loginFields()
             }
+        }
+
+        // ---- More accounts (shown together with the main one)
+        if (hasSaved) {
+            Spacer(Modifier.height(24.dp))
+            MoreAccounts(prefs, w, onSaved)
         }
 
         // ---- Categories
@@ -643,16 +649,31 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
         error = null
         val r = withContext(Dispatchers.IO) {
             runCatching {
-                val c: IptvSource = if (prefs.isStalker)
+                val main: IptvSource = if (prefs.isStalker)
                     ca.sanjwad.tvplayer.stalker.StalkerClient(prefs.stPortal, prefs.stMac, prefs.stSerial, prefs.stDeviceId, prefs.stDeviceId2,
                         java.io.File(ctx.filesDir, "vodindex"))
                 else XtreamClient(prefs.xtServer, prefs.xtUser, prefs.xtPass,
                     java.io.File(ctx.filesDir, "catalogue").apply { mkdirs() })
-                c.connect()
-                c
+                val extras = prefs.extraAccounts
+                if (extras.isEmpty()) { main.connect(); main }
+                else {
+                    // Several accounts: shown together, each one's groups labelled with its name.
+                    val parts = listOf(ca.sanjwad.tvplayer.stalker.MultiSource.Part(prefs.mainLabel, main)) +
+                        extras.mapIndexed { n, e ->
+                            ca.sanjwad.tvplayer.stalker.MultiSource.Part(e.label.ifBlank { "Account ${n + 2}" },
+                                if (e.stalker) ca.sanjwad.tvplayer.stalker.StalkerClient(e.portal, e.mac, "", "", "",
+                                    java.io.File(ctx.filesDir, "vodindex_x${n + 1}"))
+                                else XtreamClient(e.server, e.user, e.pass, java.io.File(ctx.filesDir, "catalogue_x${n + 1}").apply { mkdirs() }))
+                        }
+                    ca.sanjwad.tvplayer.stalker.MultiSource(parts).also { it.connect() }
+                }
             }
         }
         r.onSuccess { c ->
+            (c as? ca.sanjwad.tvplayer.stalker.MultiSource)?.failed?.takeIf { it.isNotEmpty() }?.let { f ->
+                android.widget.Toast.makeText(ctx, "Couldn't connect to " + f.joinToString { it.first } + ". The other accounts are working.",
+                    android.widget.Toast.LENGTH_LONG).show()
+            }
             Library.load(ctx, prefs.accountKey)
             // A brand-new TV (nothing saved yet) asks before joining the family's lists.
             if (!prefs.syncAsked && Library.favourites.isEmpty() && Library.myList.isEmpty() && Library.watched.isEmpty()) {
@@ -930,7 +951,7 @@ fun LiveScreen(s: LiveState) {
                             }
                             FocusBox(onClick = {
                                 // One-stream accounts can't show two channels; say so instead of opening it.
-                                if ((Session.client as? ca.sanjwad.tvplayer.stalker.XtreamClient)?.maxConnections == 1) {
+                                if ((Session.client?.let { ca.sanjwad.tvplayer.stalker.mainOf(it) } as? ca.sanjwad.tvplayer.stalker.XtreamClient)?.maxConnections == 1) {
                                     android.widget.Toast.makeText(ctx, "Multi-screen needs an account that allows 2 or more streams at once. Yours allows 1 — ask your provider.",
                                         android.widget.Toast.LENGTH_LONG).show()
                                     return@FocusBox
@@ -1584,6 +1605,94 @@ fun PortalLogScreen(onClose: () -> Unit) {
  * A text box for the remote. The cursor lands on an outline around the box, not the box itself, so
  * the TV's keyboard doesn't pop up while you scroll past. Press OK to type; moving away ends typing.
  */
+/** Settings → More accounts: extra Xtream/Stalker logins whose channels, movies and shows appear with the main one's. */
+@Composable
+private fun MoreAccounts(prefs: Prefs, w: Modifier, onChanged: () -> Unit) {
+    var extras by remember { mutableStateOf(prefs.extraAccounts) }
+    var adding by remember { mutableStateOf(false) }
+    var stalker by remember { mutableStateOf(false) }
+    var label by remember { mutableStateOf("") }
+    var server by remember { mutableStateOf("") }
+    var user by remember { mutableStateOf("") }
+    var pass by remember { mutableStateOf("") }
+    var portal by remember { mutableStateOf("") }
+    var mac by remember { mutableStateOf("") }
+    var mainLabel by remember { mutableStateOf(prefs.mainLabel) }
+    var err by remember { mutableStateOf<String?>(null) }
+    val xtCount = (if (prefs.isStalker) 0 else 1) + extras.count { !it.stalker }
+    val stCount = (if (prefs.isStalker) 1 else 0) + extras.count { it.stalker }
+
+    Text("MORE ACCOUNTS", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextDim, modifier = w)
+    Text("Have more than one provider? Add up to 2 Xtream and 2 Stalker accounts in all. Their channels, movies and shows " +
+        "appear alongside this one's, with each group labelled with the account's name.", fontSize = 13.sp, color = TextDim, modifier = w)
+    Spacer(Modifier.height(8.dp))
+    if (extras.isNotEmpty()) {
+        Row(w, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TvTextField(value = mainLabel, onValueChange = { mainLabel = it }, label = { Text("Name for your main account") },
+                singleLine = true, modifier = Modifier.weight(1f))
+            TvButton("Save name", onClick = { prefs.mainLabel = mainLabel; onChanged() })
+        }
+        Spacer(Modifier.height(6.dp))
+        extras.forEachIndexed { n, e ->
+            Row(w.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(e.label, fontSize = 16.sp, color = Color.White, modifier = Modifier.width(200.dp))
+                Text(if (e.stalker) "Stalker  ·  ${e.portal}" else "Xtream  ·  ${e.server}", fontSize = 13.sp, color = TextDim,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                TvButton("Remove", onClick = { extras = extras.filterIndexed { i, _ -> i != n }; prefs.extraAccounts = extras; onChanged() })
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+    if (!adding) {
+        if (xtCount < 2 || stCount < 2) TvButton("Add an account", onClick = {
+            adding = true; err = null
+            stalker = xtCount >= 2; label = ""; server = ""; user = ""; pass = ""; portal = ""
+            mac = prefs.extraMac(extras.count { it.stalker })
+        }) else Text("That's the most accounts Sanj TV can show at once.", fontSize = 13.sp, color = TextDim, modifier = w)
+        return
+    }
+    Column(w.clip(RoundedCornerShape(10.dp)).background(Color(0x14FFFFFF)).padding(16.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (xtCount < 2) TvButton(if (!stalker) "● Xtream login" else "Xtream login", onClick = { stalker = false })
+            if (stCount < 2) TvButton(if (stalker) "● Stalker portal (MAC)" else "Stalker portal (MAC)", onClick = { stalker = true })
+        }
+        Spacer(Modifier.height(8.dp))
+        TvTextField(value = label, onValueChange = { label = it }, label = { Text("Name for this account (e.g. Sports)") },
+            singleLine = true, modifier = Modifier.fillMaxWidth())
+        if (!stalker) {
+            TvTextField(value = server, onValueChange = { server = it.trim() }, label = { Text("Server (e.g. http://example.com:8080)") },
+                singleLine = true, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
+            TvTextField(value = user, onValueChange = { user = it.trim() }, label = { Text("Username") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            TvTextField(value = pass, onValueChange = { pass = it.trim() }, label = { Text("Password") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        } else {
+            TvTextField(value = portal, onValueChange = { portal = it.trim() }, label = { Text("Portal address (e.g. http://portal.example.com/c/)") },
+                singleLine = true, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
+            TvTextField(value = mac, onValueChange = { mac = it.trim() }, label = { Text("MAC address (00:1A:79:…)") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii))
+            Text("Give this MAC address to that provider to set up, or type the one they gave you.", fontSize = 13.sp, color = TextDim)
+        }
+        err?.let { Text(it, fontSize = 14.sp, color = Color(0xFFFF8A80)) }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            TvButton("Save and connect", onClick = {
+                err = when {
+                    label.isBlank() -> "Give the account a short name, like Sports."
+                    !stalker && (server.isBlank() || user.isBlank() || pass.isBlank()) -> "Fill in the server, username and password."
+                    stalker && portal.isBlank() -> "Fill in the portal address."
+                    stalker && !ca.sanjwad.tvplayer.stalker.StalkerClient.isValidMac(mac) -> "The MAC address should look like 00:1A:79:12:34:56."
+                    else -> null
+                }
+                if (err != null) return@TvButton
+                extras = extras + Prefs.ExtraAccount(label.trim(), stalker, server, user, pass, portal, mac.uppercase())
+                prefs.extraAccounts = extras
+                adding = false
+                onChanged()
+            })
+            TvButton("Cancel", onClick = { adding = false })
+        }
+    }
+}
+
 /** Pops up when someone has asked to be friends: Accept, Decline, or decide later in Settings → Friends. */
 @Composable
 private fun FriendRequestPrompt() {
