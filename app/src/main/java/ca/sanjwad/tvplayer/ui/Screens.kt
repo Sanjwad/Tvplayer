@@ -105,6 +105,8 @@ class VodState(val kind: String) {
     var focusGridOnce = false
     /** Full-screen grid: which title was opened and how far down it was, so Back returns to it. */
     var gridIdx = -1
+    /** The row whose heading opened the full-screen grid (Back returns to it). */
+    var gridFromRow: String? = null
     var gridFirst = 0
     var gridOffset = 0
     /** A row opened full screen that isn't a single category (Recently added, Trending…): its title and titles. */

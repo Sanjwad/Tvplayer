@@ -417,7 +417,12 @@ fun VodTab(s: VodState, onOpen: (VodItem) -> Unit) {
         BackHandler { s.editMode = false }
         ManageGroups(s.kind, s.categories) { s.editMode = false }
     } else if (s.gridMode) {
-        BackHandler { s.gridMode = false; s.fixedItems = null; s.fixedTitle = null }
+        BackHandler {
+            // Back to the rows with the cursor on the first title of the row whose heading was pressed.
+            s.gridFromRow?.let { row -> s.rowScroll.remove(row); s.focusRow = row; s.focusIndex = 0; s.restoreFocus = true }
+            s.gridFromRow = null; s.gridIdx = -1
+            s.gridMode = false; s.fixedItems = null; s.fixedTitle = null
+        }
         VodScreen(s, onOpen)
     } else {
         androidx.compose.runtime.key(s.resetRows) { VodRows(s, onOpen) }
@@ -644,7 +649,7 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                         item("trend$i") {
                             CompositionLocalProvider(LocalBringIntoViewSpec provides rowSpec) {
                             PosterRow(t.first, t.second, setHero, openTitle, onRowFocus = { alignRow(pos) }, vs = s, rowKey = "trend$i",
-                                onTitleClick = { openFixed(t.first, t.second) }) }
+                                onTitleClick = { s.gridFromRow = "trend$i"; openFixed(t.first, t.second) }) }
                         }
                     }
                     val recent = s.recent
@@ -652,7 +657,7 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                     if (recentShown) item("recent") {
                         CompositionLocalProvider(LocalBringIntoViewSpec provides rowSpec) {
                         PosterRow("🆕  Recently added", recent, setHero, openTitle, onRowFocus = { alignRow(trendRows.size) }, vs = s, rowKey = "recent",
-                            onTitleClick = { openFixed("Recently added", recent) }) }
+                            onTitleClick = { s.gridFromRow = "recent"; openFixed("Recently added", recent) }) }
                     }
                     itemsIndexed(rows, key = { _, r -> r.second.first().id }) { ci, (title, members) ->
                         // One category: its own row. Several with the same heading: one row that takes a page from each in turn.
@@ -662,7 +667,7 @@ private fun VodRows(s: VodState, onOpen: (VodItem) -> Unit) {
                         PosterRow(title, s.rowItems[key], setHero, openTitle, onSeeAll = null, vs = s, rowKey = key,
                             onNearEnd = { rowScope.launch { if (members.size == 1) VodLoader.more(s, key) else VodLoader.mergedMore(s, key, members.map { it.id }) } },
                             focusSeeAll = s.returnTo == key, onSeeAllFocused = { s.returnTo = null },
-                            onTitleClick = { if (members.size == 1) openGrid(key) else openFixed(title, s.rowItems[key]) },
+                            onTitleClick = { s.gridFromRow = key; if (members.size == 1) openGrid(key) else openFixed(title, s.rowItems[key]) },
                             onRowFocus = { alignRow(trendRows.size + (if (recentShown) 1 else 0) + ci) }) }
                     }
                 }
