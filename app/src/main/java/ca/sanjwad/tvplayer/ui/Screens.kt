@@ -103,6 +103,10 @@ class VodState(val kind: String) {
     var type = "vod"
     /** Set by "See all": put the cursor on the first title once the grid has loaded. */
     var focusGridOnce = false
+    /** Full-screen grid: which title was opened and how far down it was, so Back returns to it. */
+    var gridIdx = -1
+    var gridFirst = 0
+    var gridOffset = 0
     /** A row opened full screen that isn't a single category (Recently added, Trending…): its title and titles. */
     var fixedTitle by mutableStateOf<String?>(null)
     var fixedItems by mutableStateOf<List<VodItem>?>(null)
@@ -1045,19 +1049,35 @@ fun LiveScreen(s: LiveState) {
 // ---------------- movies & series ----------------
 
 @Composable
-private fun PosterGrid(items: List<VodItem>, onOpen: (VodItem) -> Unit, onNearEnd: (() -> Unit)? = null, focusFirst: Boolean = false, onFocused: () -> Unit = {}) {
+private fun PosterGrid(items: List<VodItem>, onOpen: (VodItem) -> Unit, onNearEnd: (() -> Unit)? = null, focusFirst: Boolean = false,
+                       onFocused: () -> Unit = {}, vs: VodState? = null, onFocusItem: (VodItem) -> Unit = {}) {
     val first = remember { FocusRequester() }
-    if (focusFirst && items.isNotEmpty()) LaunchedEffect(Unit) {
+    val back = remember { FocusRequester() }
+    // Back from a title opened here: same scroll position, cursor on that title.
+    val restoreIdx = if (vs != null && vs.restoreFocus && vs.gridIdx in items.indices) vs.gridIdx else -1
+    val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(
+        if (restoreIdx >= 0) vs!!.gridFirst else 0, if (restoreIdx >= 0) vs!!.gridOffset else 0)
+    if (restoreIdx >= 0) LaunchedEffect(Unit) {
+        delay(200); if (runCatching { back.requestFocus() }.isSuccess) vs!!.restoreFocus = false
+    } else if (focusFirst && items.isNotEmpty()) LaunchedEffect(Unit) {
         delay(150); if (runCatching { first.requestFocus() }.isSuccess) onFocused()
     }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(150.dp),
+        state = gridState,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         itemsIndexed(items) { index, item ->
             if (onNearEnd != null && index >= items.size - 8) LaunchedEffect(index) { onNearEnd() }
-            PosterCard(item, if (index == 0) Modifier.focusRequester(first) else Modifier) { onOpen(item) }
+            PosterCard(item, (if (index == 0) Modifier.focusRequester(first) else Modifier)
+                .then(if (index == restoreIdx) Modifier.focusRequester(back) else Modifier), onFocus = { onFocusItem(item) }) {
+                if (vs != null) {
+                    vs.gridIdx = index; vs.gridFirst = gridState.firstVisibleItemIndex; vs.gridOffset = gridState.firstVisibleItemScrollOffset
+                    vs.restoreFocus = true
+                }
+                onOpen(item)
+            }
         }
     }
 }
@@ -1133,14 +1153,17 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
 
     // A row opened full screen from its heading (Recently added, Trending…): just those titles.
     s.fixedItems?.let { fixed ->
+        // The highlighted title's details on top (like the rows), the grid below.
+        val (hero, setHero) = rememberHero()
         Column(Modifier.fillMaxSize()) {
+            Hero(hero)
             Row(verticalAlignment = Alignment.Bottom) {
-                Text(s.fixedTitle.orEmpty(), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text(s.fixedTitle.orEmpty(), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 Text("   ${fixed.size} titles", fontSize = 14.sp, color = TextDim)
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                PosterGrid(fixed, onOpen, focusFirst = s.focusGridOnce, onFocused = { s.focusGridOnce = false })
+                PosterGrid(fixed, onOpen, focusFirst = s.focusGridOnce, onFocused = { s.focusGridOnce = false }, vs = s, onFocusItem = setHero)
             }
         }
         return
@@ -1148,10 +1171,12 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
     val label = kindLabel(s.kind)
     // "See all": just the category's titles, full width, with its name on top (Back returns to the rows).
     val catTitle = s.categories.firstOrNull { it.id == s.category }?.let { groupLabels(s.kind, s.categories)[it.id] ?: it.title }.orEmpty()
+    val (hero, setHero) = rememberHero()
     Column(Modifier.fillMaxSize()) {
+        if (catTitle.isNotBlank() && s.category != SEARCH_ID) Hero(hero)
         if (catTitle.isNotBlank()) {
             Row(verticalAlignment = Alignment.Bottom) {
-                Text(catTitle, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text(catTitle, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 if (s.total > 0) Text("   ${s.total} titles", fontSize = 14.sp, color = TextDim)
             }
             Spacer(Modifier.height(12.dp))
@@ -1180,7 +1205,7 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
                     s.items.isEmpty() && (s.loading || !s.catsLoaded) -> CenterMessage("Loading $label…", loading = true)
                     s.items.isEmpty() -> CenterMessage("Nothing in this category")
                     else -> PosterGrid(s.items, onOpen, { loadPage(false) }, focusFirst = s.focusGridOnce,
-                        onFocused = { s.focusGridOnce = false })
+                        onFocused = { s.focusGridOnce = false }, vs = s, onFocusItem = setHero)
                 }
             }
         }
@@ -1188,8 +1213,8 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
 }
 
 @Composable
-fun PosterCard(item: VodItem, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    FocusBox(onClick = onClick, modifier = modifier.fillMaxWidth()) {
+fun PosterCard(item: VodItem, modifier: Modifier = Modifier, onFocus: () -> Unit = {}, onClick: () -> Unit) {
+    FocusBox(onClick = onClick, modifier = modifier.fillMaxWidth(), onFocus = onFocus) {
         Column(Modifier.padding(6.dp)) {
             Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(6.dp)).background(Bg)) {
                 Text(item.name, Modifier.align(Alignment.Center).padding(8.dp), color = TextDim, fontSize = 14.sp, maxLines = 4)

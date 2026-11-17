@@ -89,8 +89,9 @@ fun HomeScreen(
         val vs = when (section) { 1 -> movies; 2 -> series; 5 -> SearchMemory.rows; else -> null }
         if (section == 5 && vs!!.restoreFocus) {
             // Search puts the cursor back itself (or on the search box).
-        } else if (vs != null && vs.restoreFocus && !vs.gridMode) {
-            // Coming back from a title: its row puts the cursor back on it. If that can't happen, use the menu.
+        } else if (vs != null && vs.restoreFocus) {
+            // Coming back from a title: its row (or the full-screen grid) puts the cursor back on it.
+            // If that can't happen, use the menu.
             delay(900)
             if (vs.restoreFocus) { vs.restoreFocus = false; runCatching { fr.requestFocus() } }
         } else {
@@ -359,7 +360,7 @@ private fun PosterRow(
 // ---------------- featured area ----------------
 
 @Composable
-private fun Hero(item: VodItem?) {
+internal fun Hero(item: VodItem?) {
     // Always the same height, even before anything is selected, so the rows never jump.
     Box(Modifier.fillMaxWidth().height(220.dp)) {
         if (item == null) return@Box
@@ -391,7 +392,7 @@ private fun Hero(item: VodItem?) {
 
 /** Follows the focused title and fills in its description/backdrop after a short pause. */
 @Composable
-private fun rememberHero(): Pair<VodItem?, (VodItem) -> Unit> {
+internal fun rememberHero(): Pair<VodItem?, (VodItem) -> Unit> {
     var focused by remember { mutableStateOf<VodItem?>(null) }
     var shown by remember { mutableStateOf<VodItem?>(null) }
     LaunchedEffect(focused?.id) {
