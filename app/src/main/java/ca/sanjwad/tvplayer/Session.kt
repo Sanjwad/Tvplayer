@@ -20,6 +20,8 @@ object Session {
     @Volatile var omdb: ca.sanjwad.tvplayer.stalker.OmdbClient? = null
     @Volatile var tmdb: ca.sanjwad.tvplayer.stalker.TmdbClient? = null
     val seasonCache = java.util.concurrent.ConcurrentHashMap<String, List<ca.sanjwad.tvplayer.stalker.Season>>()
+    /** The app's context, for background work that isn't tied to a screen (e.g. image prefetch). */
+    var appContext: android.content.Context? = null
     /** Every live channel and the live groups, for the multi-screen channel picker. */
     var liveAll: List<ca.sanjwad.tvplayer.stalker.Channel> = emptyList()
     var liveGenres: List<ca.sanjwad.tvplayer.stalker.Genre> = emptyList()

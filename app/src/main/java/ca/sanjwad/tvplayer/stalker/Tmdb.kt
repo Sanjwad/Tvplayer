@@ -413,9 +413,19 @@ object TitleMatch {
     private fun yearOf(v: VodItem): Int? =
         v.year.take(4).toIntOrNull() ?: yearInName.find(v.name)?.value?.filter { it.isDigit() }?.take(4)?.toIntOrNull()
 
-    fun match(hits: List<TmdbClient.Hit>, catalogue: List<VodItem>): List<VodItem> {
-        val index = HashMap<String, MutableList<VodItem>>()
+    /** Name index of the last catalogue matched against, so several rows share one (slow) build. */
+    @Volatile private var lastIndex: Pair<List<VodItem>, Map<String, List<VodItem>>>? = null
+
+    private fun indexOf(catalogue: List<VodItem>): Map<String, List<VodItem>> {
+        lastIndex?.let { (cat, idx) -> if (cat === catalogue) return idx }
+        val index = HashMap<String, MutableList<VodItem>>(catalogue.size)
         catalogue.forEach { index.getOrPut(norm(it.name)) { mutableListOf() }.add(it) }
+        lastIndex = catalogue to index
+        return index
+    }
+
+    fun match(hits: List<TmdbClient.Hit>, catalogue: List<VodItem>): List<VodItem> {
+        val index = indexOf(catalogue)
         return hits.mapNotNull { h ->
             val cands = index[norm(h.title)] ?: return@mapNotNull null
             val hy = h.year.toIntOrNull()

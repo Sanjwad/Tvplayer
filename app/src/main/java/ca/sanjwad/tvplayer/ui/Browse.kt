@@ -62,6 +62,7 @@ import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.withLock
 
@@ -492,9 +493,13 @@ object VodLoader {
         val catalogue = withContext(Dispatchers.IO) {
             runCatching { Session.client?.catalogue(s.type) }.getOrNull()
         }.orEmpty()
-        s.trending = rows.map { (title, fetch) ->
-            val hits = withContext(Dispatchers.IO) { runCatching { fetch() }.getOrDefault(emptyList()) }
-            title to ca.sanjwad.tvplayer.stalker.TitleMatch.match(hits, catalogue)
+        // Both lists fetched together, and matched off the main thread: matching walks the whole
+        // catalogue, and doing it on the screen's thread is what made the tab stutter on first open.
+        s.trending = withContext(Dispatchers.Default) {
+            val fetched = rows.map { (title, fetch) ->
+                title to async(Dispatchers.IO) { runCatching { fetch() }.getOrDefault(emptyList()) }
+            }
+            fetched.map { (title, hits) -> title to ca.sanjwad.tvplayer.stalker.TitleMatch.match(hits.await(), catalogue) }
         }
     }
 
@@ -576,6 +581,27 @@ object VodLoader {
         s.categories.filter { !Library.isHidden(s.kind, it.id) }.take(4).forEach { row(s, it.id) }
         recent(s)
         trending(s)
+        prefetchImages(s)
+    }
+
+    /** Fetch the posters you'll see first into the image cache, so the rows don't fill in piece by piece. */
+    private fun prefetchImages(s: VodState) {
+        val ctx = Session.appContext ?: return
+        val loader = coil.Coil.imageLoader(ctx)
+        val first = buildList {
+            s.trending.forEach { (_, l) -> l?.take(10)?.let { addAll(it) } }
+            s.recent?.take(10)?.let { addAll(it) }
+            s.categories.filter { !Library.isHidden(s.kind, it.id) }.take(4).forEach { c -> s.rowItems[c.id]?.take(10)?.let { addAll(it) } }
+        }
+        first.mapNotNull { it.poster }.distinct().forEach { url ->
+            loader.enqueue(coil.request.ImageRequest.Builder(ctx).data(url)
+                .memoryCachePolicy(coil.request.CachePolicy.DISABLED) // disk only: the tile decodes at its own size
+                .build())
+        }
+        // The big picture at the top of the tab.
+        (s.trending.firstNotNullOfOrNull { it.second?.firstOrNull() })?.backdrop?.let { url ->
+            loader.enqueue(coil.request.ImageRequest.Builder(ctx).data(url).memoryCachePolicy(coil.request.CachePolicy.DISABLED).build())
+        }
     }
 }
 
