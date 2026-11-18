@@ -833,16 +833,26 @@ val Gold = Color(0xFFFFC94D)
 fun SearchField(query: String, onChange: (String) -> Unit, hint: String, modifier: Modifier = Modifier, onSearch: (() -> Unit)? = null) {
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
-    OutlinedTextField(
-        value = query, onValueChange = onChange, label = { Text(hint) },
-        singleLine = true, modifier = modifier.fillMaxWidth(),
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        // The keyboard's search key: close the keyboard and drop down into the results.
-        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = {
-            keyboard?.hide()
-            if (onSearch != null) onSearch() else focus.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)
-        }),
-    )
+    val field = remember { FocusRequester() }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = query, onValueChange = onChange, label = { Text(hint) },
+            singleLine = true, modifier = modifier.focusRequester(field).weight(1f),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            // The keyboard's search key: close the keyboard and drop down into the results.
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = {
+                keyboard?.hide()
+                if (onSearch != null) onSearch() else focus.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)
+            }),
+        )
+        // The TV's own keyboard has no "clear all": empty the box in one press (Right from the box).
+        if (query.isNotEmpty()) {
+            Spacer(Modifier.width(10.dp))
+            FocusBox(onClick = { onChange(""); runCatching { field.requestFocus() } }, shape = RoundedCornerShape(10.dp)) {
+                Text("✕  Clear", Modifier.padding(horizontal = 16.dp, vertical = 14.dp), fontSize = 15.sp, color = Color.White)
+            }
+        }
+    }
 }
 
 private val clock = java.text.SimpleDateFormat("h:mm", java.util.Locale.getDefault())
