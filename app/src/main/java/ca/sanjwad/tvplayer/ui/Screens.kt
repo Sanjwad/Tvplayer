@@ -910,7 +910,8 @@ private fun SideList(entries: List<Genre>, selected: String?, width: Int, collap
             val isSel = g.id == selected
             if (isSel) androidx.compose.runtime.DisposableEffect(g.id) { shownId = g.id; onDispose { if (shownId == g.id) shownId = null } }
             FocusBox(onClick = { onPick(g) }, modifier = Modifier.fillMaxWidth().then(if (isSel) Modifier.focusRequester(sel) else Modifier),
-                selected = isSel) {
+                // Like the side menu: focus is just the coral outline; blue marks the open group.
+                selected = isSel, fill = { if (isSel) SelectedFill else Panel }) {
                 Text(g.title, Modifier.padding(12.dp), fontSize = 17.sp,
                     color = if (g.id == FAV_ID || g.id == LIST_ID) Gold else Color.White,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1033,7 +1034,7 @@ fun LiveScreen(s: LiveState) {
                                 FocusBox(onClick = {
                                     Session.channels = shown
                                     ctx.startActivity(Intent(ctx, PlayerActivity::class.java).putExtra("live_index", index))
-                                }, modifier = Modifier.weight(1f)) {
+                                }, modifier = Modifier.weight(1f), fill = { Panel }) {
                                     Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Text(if (c.number > 0) c.number.toString() else "", Modifier.width(56.dp), color = TextDim, fontSize = 16.sp)
                                         AsyncImage(model = c.logo, contentDescription = null,
