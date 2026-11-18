@@ -70,6 +70,27 @@ private val GoldTint = Color(0xFFFFC94D)
 
 // ---------------- shell with side menu ----------------
 
+/** Time under the logo (and the date when the menu is open). Follows the TV's 12/24-hour setting. */
+@Composable
+private fun MenuClock(expanded: Boolean) {
+    val ctx = LocalContext.current
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(60_000 - now % 60_000 + 50) // tick on the minute
+        }
+    }
+    val time = android.text.format.DateFormat.getTimeFormat(ctx).format(java.util.Date(now))
+    Column(Modifier.fillMaxWidth().padding(start = if (expanded) 8.dp else 0.dp),
+        horizontalAlignment = if (expanded) Alignment.Start else Alignment.CenterHorizontally) {
+        Text(time, fontSize = if (expanded) 22.sp else 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
+            maxLines = 1, softWrap = false)
+        if (expanded) Text(java.text.SimpleDateFormat("EEE d MMM", java.util.Locale.getDefault()).format(java.util.Date(now)),
+            fontSize = 13.sp, color = TextDim, maxLines = 1)
+    }
+}
+
 @Composable
 fun HomeScreen(
     section: Int, onSection: (Int) -> Unit,
@@ -123,7 +144,9 @@ fun HomeScreen(
                     androidx.compose.ui.res.painterResource(ca.sanjwad.tvplayer.R.drawable.ic_launcher), contentDescription = "Sanj TV",
                     modifier = Modifier.padding(start = 6.dp).size(34.dp),
                 )
-                Spacer(Modifier.height(if (menuFocused) 36.dp else 34.dp))
+                Spacer(Modifier.height(10.dp))
+                MenuClock(expanded = menuFocused)
+                Spacer(Modifier.height(if (menuFocused) 22.dp else 20.dp))
                 entries.forEach { (label, i, icon) ->
                     FocusBox(
                         onClick = { if (i == 4) onSettings() else onSection(i) },

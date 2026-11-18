@@ -216,7 +216,10 @@ fun App() {
                     stack.clear(); Session.vodTypes.clear()
                     screen = "connect"
                 }
-                screen == "connect" -> ConnectScreen(prefs, onDone = { screen = "home" }, onEdit = { screen = "setup" })
+                screen == "connect" -> ConnectScreen(prefs, onDone = {
+                    if (prefs.startOn == "mylist") section = 3
+                    screen = "home"
+                }, onEdit = { screen = "setup" })
                 top is DetailReq -> androidx.compose.runtime.key(top) {
                     DetailScreen(top.type, top.item, top.seasonId,
                         onCast = { stack.add(CastNav(top.item.name, top.item.year, top.item.isSeries)) },
@@ -269,7 +272,7 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
     var editing by remember { mutableStateOf(!hasSaved) }
     var advanced by remember { mutableStateOf(false) }
     var tmdbSaved by remember { mutableStateOf(false) }
-    var startLast by remember { mutableStateOf(prefs.startOnLastChannel) }
+    var startOn by remember { mutableStateOf(prefs.startOn) }
     var syncOn by remember { mutableStateOf(prefs.syncOn) }
     var syncName by remember { mutableStateOf(prefs.syncName) }
     var syncNameSaved by remember { mutableStateOf(prefs.syncName) }
@@ -519,11 +522,20 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
         Spacer(Modifier.height(24.dp))
         Text("OPTIONS", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextDim, modifier = w)
         Spacer(Modifier.height(8.dp))
-        FocusBox(onClick = { startLast = !startLast; prefs.startOnLastChannel = startLast }, modifier = w, shape = RoundedCornerShape(10.dp)) {
+        // OK cycles through the three choices.
+        val startChoices = listOf("live" to "Last live channel", "mylist" to "My List", "home" to "Live TV list")
+        FocusBox(onClick = {
+            val i = startChoices.indexOfFirst { it.first == startOn }
+            startOn = startChoices[(i + 1) % startChoices.size].first
+            prefs.startOn = startOn
+        }, modifier = w, shape = RoundedCornerShape(10.dp)) {
             Row(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Open the last live channel when Sanj TV starts", Modifier.weight(1f), fontSize = 15.sp, color = Color.White)
-                Text(if (startLast) "On" else "Off", fontSize = 15.sp, fontWeight = FontWeight.Bold,
-                    color = if (startLast) Accent else TextDim)
+                Column(Modifier.weight(1f)) {
+                    Text("When Sanj TV starts, open", fontSize = 15.sp, color = Color.White)
+                    Text("Press OK to change", fontSize = 12.sp, color = TextDim)
+                }
+                Text(startChoices.firstOrNull { it.first == startOn }?.second ?: "Last live channel", fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold, color = Accent)
             }
         }
 

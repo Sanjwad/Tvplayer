@@ -59,9 +59,12 @@ class Prefs(ctx: Context) {
     var omdbKey: String
         get() = sp.getString("omdb_key", "").orEmpty()
         set(v) = sp.edit().putString("omdb_key", v).apply()
-    var startOnLastChannel: Boolean
-        get() = sp.getBoolean("start_last_channel", true)
-        set(v) = sp.edit().putBoolean("start_last_channel", v).apply()
+    /** Where Sanj TV opens: "live" (last live channel playing), "home" (Live TV list) or "mylist". */
+    var startOn: String
+        // Before this choice existed it was an on/off switch for the last live channel.
+        get() = sp.getString("start_on", null) ?: if (sp.getBoolean("start_last_channel", true)) "live" else "home"
+        set(v) = sp.edit().putString("start_on", v).apply()
+    val startOnLastChannel: Boolean get() = startOn == "live"
     /** Share My List, favourites and watched progress with other TVs on the same login. */
     /** Pop up "an update is ready" when the app opens. Off: updates only via Settings → Check for updates. */
     var updatePrompts: Boolean
