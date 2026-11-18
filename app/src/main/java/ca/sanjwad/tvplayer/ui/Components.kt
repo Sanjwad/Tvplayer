@@ -103,6 +103,8 @@ fun FocusBox(
     shape: Shape = RoundedCornerShape(10.dp),
     onFocus: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
+    /** Overrides the background (given whether it's focused); the coral outline still shows focus. */
+    fill: ((focused: Boolean) -> Color)? = null,
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -131,6 +133,7 @@ fun FocusBox(
     }
     // Stay navy and let the coral outline do the highlighting, so coral never mixes into pink.
     val bg = when {
+        fill != null -> fill(focused)
         focused -> FocusFill
         selected -> SelectedFill
         else -> Panel

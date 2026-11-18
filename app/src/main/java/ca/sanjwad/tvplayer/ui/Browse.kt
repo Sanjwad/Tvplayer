@@ -154,6 +154,9 @@ fun HomeScreen(
                             .then(if (i == section) Modifier.focusRequester(fr) else Modifier),
                         selected = i == section,
                         shape = RoundedCornerShape(8.dp),
+                        // Menu: the highlight is just the coral outline on the menu's own colour;
+                        // blue only marks the page you're on.
+                        fill = { if (i == section) SelectedFill else Rail },
                     ) {
                         Row(Modifier.padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
                             androidx.compose.material3.Icon(
