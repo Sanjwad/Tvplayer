@@ -61,7 +61,8 @@ jobs:
         working-directory: sync-worker
         run: npx --yes wrangler@4 deploy 2>&1 | tee deploy.log; exit ${PIPESTATUS[0]}
       - name: TMDB key for the phone page
-        if: env.SKIP != '1'
+        # Once (both branches deploy together and would trip over each other).
+        if: env.SKIP != '1' && github.ref == 'refs/heads/main'
         working-directory: sync-worker
         env:
           TMDB_KEY: ${{ secrets.TMDB_KEY }}
