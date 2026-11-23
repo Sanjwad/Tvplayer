@@ -60,6 +60,14 @@ jobs:
         if: env.SKIP != '1'
         working-directory: sync-worker
         run: npx --yes wrangler@4 deploy 2>&1 | tee deploy.log; exit ${PIPESTATUS[0]}
+      - name: TMDB key for the phone page
+        if: env.SKIP != '1'
+        working-directory: sync-worker
+        env:
+          TMDB_KEY: ${{ secrets.TMDB_KEY }}
+        run: |
+          [ -n "$TMDB_KEY" ] || { echo "::warning::no TMDB_KEY secret; phone search won't work"; exit 0; }
+          printf '%s' "$TMDB_KEY" | npx --yes wrangler@4 secret put TMDB_KEY
       - name: Show address
         if: env.SKIP != '1'
         run: |
@@ -94,3 +102,19 @@ jobs:
           after=$(j send "{\"key\":\"$a\",\"to\":\"$cb\",\"item\":{\"title\":\"X\"}}"); echo "after unfriend: $after"
           echo "$after" | grep -q "only send to friends" && echo "UNFRIEND TEST PASSED" || { echo "::error::unfriend test failed"; exit 1; }
           j dismiss "{\"key\":\"$b\",\"id\":\"$id\"}"
+      - name: Phone test
+        if: github.ref == 'refs/heads/main'
+        run: |
+          url="https://sanjtv-sync.${SUB:-sanjwad}.workers.dev"
+          a=$(printf 'a%.0s' $(seq 64))
+          code=$(curl -sS -X POST -H "Content-Type: application/json" --data "{\"key\":\"$a\"}" "$url/v1/phone/pair-code" | jq -r .code)
+          tok=$(curl -sS -X POST -H "Content-Type: application/json" --data "{\"code\":\"$code\"}" "$url/v1/phone/pair" | jq -r .token)
+          echo "code $code token ${tok:0:6}…"
+          curl -sS "$url/v1/phone/search?token=$tok&q=uncle%20buck" | jq -c '.results[0] // .'
+          curl -sS -X POST -H "Content-Type: application/json" --data "{\"token\":\"$tok\",\"item\":{\"title\":\"Uncle Buck\",\"year\":\"1989\",\"tmdb\":2263}}" "$url/v1/phone/add"; echo
+          box=$(curl -sS "$url/v1/phone/inbox/$a"); echo "$box" | jq -c '.items[0].title'
+          id=$(echo "$box" | jq -r '.items[0].id')
+          curl -sS -X POST -H "Content-Type: application/json" --data "{\"key\":\"$a\",\"ids\":[\"$id\"]}" "$url/v1/phone/done"; echo
+          curl -sS -X POST -H "Content-Type: application/json" --data "{\"key\":\"$a\"}" "$url/v1/phone/unlink"; echo
+          [ "$(echo "$box" | jq -r '.items[0].title')" = "Uncle Buck" ] && echo "PHONE TEST PASSED" || { echo "::error::phone test failed"; exit 1; }
+          curl -sS -o /dev/null -w "phone page %{http_code}\n" "$url/phone"

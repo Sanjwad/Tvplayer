@@ -1,5 +1,6 @@
 package ca.sanjwad.tvplayer.ui
 
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.withStyle
@@ -570,6 +571,12 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
                 fontSize = 12.sp, color = TextDim, modifier = w.padding(top = 6.dp))
         }
 
+        // ---- Phone page (add to My List from your phone)
+        if (ca.sanjwad.tvplayer.Share.available && Session.client != null) {
+            Spacer(Modifier.height(24.dp))
+            PhoneSettings(w)
+        }
+
         // ---- Friends ("Send to a friend")
         if (ca.sanjwad.tvplayer.Share.available && Session.client != null) {
             Spacer(Modifier.height(24.dp))
@@ -697,6 +704,7 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
                     android.widget.Toast.LENGTH_LONG).show()
             }
             Library.load(ctx, prefs.accountKey)
+            Thread { runCatching { ca.sanjwad.tvplayer.Share.processPhone() } }.apply { isDaemon = true }.start()
             // A brand-new TV (nothing saved yet) asks before joining the family's lists.
             if (!prefs.syncAsked && Library.favourites.isEmpty() && Library.myList.isEmpty() && Library.watched.isEmpty()) {
                 syncAsk = true
@@ -1769,6 +1777,61 @@ private fun MoreAccounts(prefs: Prefs, w: Modifier, onChanged: () -> Unit) {
             TvButton("Cancel", onClick = { adding = false })
         }
     }
+}
+
+/** Settings → Phone: link a phone (QR code or 6-digit code) so it can add titles to My List. */
+@Composable
+private fun PhoneSettings(w: Modifier) {
+    val S = ca.sanjwad.tvplayer.Share
+    val scope = rememberCoroutineScope()
+    var code by remember { mutableStateOf<String?>(null) }
+    var note by remember { mutableStateOf<String?>(null) }
+    Text("PHONE", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextDim, modifier = w)
+    Text("Add films and shows to My List from your phone, e.g. when someone recommends one. They appear here next time Sanj TV opens.",
+        fontSize = 13.sp, color = TextDim, modifier = w)
+    Spacer(Modifier.height(8.dp))
+    Row(w, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        TvButton(if (code == null) "Link a phone" else "New code", onClick = {
+            note = null
+            scope.launch {
+                val r = withContext(Dispatchers.IO) { runCatching { S.phoneCode() } }
+                r.onSuccess { code = it }.onFailure { note = "Couldn't get a code: ${it.message}" }
+            }
+        })
+        TvButton("Unlink all phones", onClick = {
+            scope.launch {
+                val r = withContext(Dispatchers.IO) { runCatching { S.unlinkPhones() } }
+                note = if (r.isSuccess) "Done. Phones will need linking again." else "Couldn't unlink: ${r.exceptionOrNull()?.message}"
+                code = null
+            }
+        })
+    }
+    code?.let { c ->
+        val link = "${S.phoneUrl}?code=$c"
+        val qr = remember(link) { qrBitmap(link, 360) }
+        Spacer(Modifier.height(12.dp))
+        Row(w, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+            androidx.compose.foundation.Image(qr, contentDescription = "QR code", modifier = Modifier.size(180.dp).clip(RoundedCornerShape(8.dp)))
+            Column {
+                Text("Point your phone's camera at the code and tap the link.", fontSize = 15.sp, color = Color.White)
+                Spacer(Modifier.height(10.dp))
+                Text("Or open this page on your phone and type the code:", fontSize = 13.sp, color = TextDim)
+                Text(S.phoneUrl.removePrefix("https://"), fontSize = 15.sp, color = Color.White)
+                Spacer(Modifier.height(6.dp))
+                Text(c.chunked(3).joinToString(" "), fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 4.sp)
+                Text("The code works for 15 minutes. Then save the page to your home screen.", fontSize = 13.sp, color = TextDim)
+            }
+        }
+    }
+    note?.let { Spacer(Modifier.height(6.dp)); Text(it, fontSize = 14.sp, color = Color(0xFFE8EDF3), modifier = w) }
+}
+
+/** A QR code as an image (black on white). */
+private fun qrBitmap(text: String, size: Int): androidx.compose.ui.graphics.ImageBitmap {
+    val m = com.google.zxing.qrcode.QRCodeWriter().encode(text, com.google.zxing.BarcodeFormat.QR_CODE, size, size,
+        mapOf(com.google.zxing.EncodeHintType.MARGIN to 1))
+    val px = IntArray(size * size) { i -> if (m[i % size, i / size]) 0xFF000000.toInt() else 0xFFFFFFFF.toInt() }
+    return android.graphics.Bitmap.createBitmap(px, size, size, android.graphics.Bitmap.Config.ARGB_8888).asImageBitmap()
 }
 
 /** Pops up when someone has asked to be friends: Accept, Decline, or decide later in Settings → Friends. */

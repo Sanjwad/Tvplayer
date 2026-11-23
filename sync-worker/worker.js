@@ -1,3 +1,4 @@
+import { PHONE_HTML } from "./phone.js";
 // v2
 // Sanj TV sync + sharing.
 //
@@ -38,6 +39,15 @@ export default {
     if (req.method === "OPTIONS") return new Response(null, { headers: cors });
     const path = new URL(req.url).pathname;
     if (path === "/") return json({ ok: true, service: "sanjtv-sync" });
+    if (path === "/phone" || path === "/phone/") return new Response(PHONE_HTML, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" } });
+    if (path === "/phone/manifest.json") return new Response(JSON.stringify({
+      name: "Sanj TV", short_name: "Sanj TV", start_url: "/phone", display: "standalone",
+      background_color: "#0A101E", theme_color: "#0A101E",
+    }), { headers: { "Content-Type": "application/manifest+json" } });
+    if (path.startsWith("/v1/phone/")) {
+      try { return await phone(req, env, path.slice("/v1/phone/".length)); }
+      catch (e) { return json({ error: String(e && e.message || e) }, 400); }
+    }
     if (path.startsWith("/v1/share/")) {
       try { return await share(req, env, path.slice("/v1/share/".length)); }
       catch (e) { return json({ error: String(e && e.message || e) }, 400); }
@@ -308,6 +318,99 @@ async function share(req, env, rest) {
     const inbox = (await getJ(env, "share:inbox:" + body.key)) || [];
     const left = inbox.filter(i => i.id !== body.id);
     if (left.length !== inbox.length) await putJ(env, "share:inbox:" + body.key, left);
+    return json({ ok: true });
+  }
+  return json({ error: "not found" }, 404);
+}
+
+// ---------- phone page ("add to My List" from your phone) ----------
+// The TV asks for a 6-digit code; the phone types it once and gets its own token, saved on the phone.
+//   POST /v1/phone/pair-code {key}     (TV)    -> {code}  (valid 15 minutes)
+//   POST /v1/phone/pair      {code}    (phone) -> {token}
+//   GET  /v1/phone/search?token=&q=   (phone) -> {results:[{title,year,series,poster,overview}]}
+//   POST /v1/phone/add       {token, item}     -> {ok}
+//   GET  /v1/phone/list?token=        (phone) -> {items}  (still waiting for the TV)
+//   GET  /v1/phone/inbox/<key>         (TV)    -> {items}
+//   POST /v1/phone/done      {key, ids}  (TV)  -> {ok}  (added to My List on the TV)
+//   POST /v1/phone/unlink    {key}       (TV)  -> {ok}  (every phone signed out)
+async function phone(req, env, rest) {
+  const url = new URL(req.url);
+  const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
+  const tokenKey = async t => {
+    if (!/^[0-9a-f]{32}$/.test(t || "")) throw new Error("This phone isn't linked. Pair it again from Sanj TV.");
+    const rec = await getJ(env, "phone:tok:" + t);
+    if (!rec) throw new Error("This phone isn't linked. Pair it again from Sanj TV.");
+    return rec.key;
+  };
+
+  if (rest === "pair-code" && req.method === "POST") {
+    if (!KEY.test(body.key || "")) throw new Error("bad key");
+    const code = String(100000 + Math.floor(Math.random() * 900000));
+    await env.SYNC.put("phone:code:" + code, JSON.stringify({ key: body.key }), { expirationTtl: 900 });
+    return json({ code });
+  }
+  if (rest === "pair" && req.method === "POST") {
+    const code = String(body.code || "").replace(/\D/g, "");
+    const rec = await getJ(env, "phone:code:" + code);
+    if (!rec) return json({ error: "That code didn't work. Codes last 15 minutes; get a new one on the TV." }, 404);
+    const token = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, "0")).join("");
+    await putJ(env, "phone:tok:" + token, { key: rec.key, at: Date.now() });
+    const list = (await getJ(env, "phone:toks:" + rec.key)) || [];
+    await putJ(env, "phone:toks:" + rec.key, [...list, token].slice(-10));
+    await env.SYNC.delete("phone:code:" + code);
+    return json({ token });
+  }
+  if (rest === "search" && req.method === "GET") {
+    await tokenKey(url.searchParams.get("token"));
+    const q = (url.searchParams.get("q") || "").trim();
+    if (q.length < 2) return json({ results: [] });
+    if (!env.TMDB_KEY) throw new Error("Search isn't set up yet.");
+    const bearer = env.TMDB_KEY.length > 40;
+    const u = new URL("https://api.themoviedb.org/3/search/multi");
+    u.searchParams.set("query", q); u.searchParams.set("language", "en-CA"); u.searchParams.set("include_adult", "false");
+    if (!bearer) u.searchParams.set("api_key", env.TMDB_KEY);
+    const r = await fetch(u, { headers: bearer ? { Authorization: "Bearer " + env.TMDB_KEY } : {} });
+    const d = await r.json();
+    const results = (d.results || []).filter(x => x.media_type === "movie" || x.media_type === "tv").slice(0, 20).map(x => ({
+      tmdb: x.id, series: x.media_type === "tv", title: x.title || x.name || "",
+      year: String(x.release_date || x.first_air_date || "").slice(0, 4),
+      poster: x.poster_path ? "https://image.tmdb.org/t/p/w342" + x.poster_path : "",
+      overview: String(x.overview || "").slice(0, 300), rating: x.vote_average ? Math.round(x.vote_average * 10) / 10 : null,
+    }));
+    return json({ results });
+  }
+  if (rest === "add" && req.method === "POST") {
+    const key = await tokenKey(body.token);
+    const it = body.item || {};
+    const item = { id: crypto.randomUUID(), at: Date.now(), title: String(it.title || "").slice(0, 200), year: String(it.year || "").slice(0, 10),
+      series: !!it.series, poster: String(it.poster || "").slice(0, 500), tmdb: Number(it.tmdb) || 0 };
+    if (!item.title) throw new Error("missing title");
+    const box = (await getJ(env, "phone:box:" + key)) || [];
+    if (!box.some(b => b.tmdb && b.tmdb === item.tmdb)) { box.unshift(item); await putJ(env, "phone:box:" + key, box.slice(0, 60)); }
+    return json({ ok: true });
+  }
+  if (rest === "list" && req.method === "GET") {
+    const key = await tokenKey(url.searchParams.get("token"));
+    return json({ items: (await getJ(env, "phone:box:" + key)) || [] });
+  }
+  if (rest.startsWith("inbox/") && req.method === "GET") {
+    const key = rest.slice(6);
+    if (!KEY.test(key)) throw new Error("bad key");
+    return new Response(JSON.stringify({ items: (await getJ(env, "phone:box:" + key)) || [] }),
+      { headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  }
+  if (rest === "done" && req.method === "POST") {
+    if (!KEY.test(body.key || "")) throw new Error("bad key");
+    const ids = new Set(body.ids || []);
+    const box = (await getJ(env, "phone:box:" + body.key)) || [];
+    const left = box.filter(b => !ids.has(b.id));
+    if (left.length !== box.length) await putJ(env, "phone:box:" + body.key, left);
+    return json({ ok: true });
+  }
+  if (rest === "unlink" && req.method === "POST") {
+    if (!KEY.test(body.key || "")) throw new Error("bad key");
+    for (const t of (await getJ(env, "phone:toks:" + body.key)) || []) await env.SYNC.delete("phone:tok:" + t);
+    await env.SYNC.delete("phone:toks:" + body.key);
     return json({ ok: true });
   }
   return json({ error: "not found" }, 404);

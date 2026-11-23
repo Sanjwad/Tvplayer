@@ -1021,10 +1021,12 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val resume = Library.progress.values.sortedByDescending { it.updated }
-    val sent = ca.sanjwad.tvplayer.Share.inbox.value
+    val sent = ca.sanjwad.tvplayer.Share.inbox.value + ca.sanjwad.tvplayer.Share.phoneMissing.value
     val sentByMe = ca.sanjwad.tvplayer.Share.outbox.value
     var unsend by remember { mutableStateOf<ca.sanjwad.tvplayer.Share.Item?>(null) }
-    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { runCatching { ca.sanjwad.tvplayer.Share.refreshInbox() } } }
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) {
+        runCatching { ca.sanjwad.tvplayer.Share.refreshInbox() }; runCatching { ca.sanjwad.tvplayer.Share.processPhone() }
+    } }
     if (saved.isEmpty() && resume.isEmpty() && sent.isEmpty() && sentByMe.isEmpty()) {
         CenterMessage("Your list is empty", "Open any movie or show and choose ＋ My List.")
         return
@@ -1161,7 +1163,7 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
         WatchedMenu("Remove \"${r.title}\" from Sent to you?", listOf(
             "Keep it" to {},
             "Remove" to {
-                ca.sanjwad.tvplayer.Share.dismiss(r.id)
+                if (r.from == "your phone") ca.sanjwad.tvplayer.Share.dismissPhone(r.id) else ca.sanjwad.tvplayer.Share.dismiss(r.id)
                 android.widget.Toast.makeText(ctx, "Removed ${r.title}", android.widget.Toast.LENGTH_SHORT).show()
             },
         ), onClose = { removeSent = null })

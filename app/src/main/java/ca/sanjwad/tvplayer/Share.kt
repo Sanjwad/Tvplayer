@@ -123,6 +123,61 @@ object Share {
         Thread { runCatching { post("dismiss", JSONObject().put("key", key).put("id", id)) } }.apply { isDaemon = true }.start()
     }
 
+    // ---------- phone page: titles added on a phone go into My List here ----------
+    val phoneUrl get() = "$BASE/phone"
+    /** Titles the phone added that this provider doesn't seem to have (shown in "Sent to you"). */
+    val phoneMissing = mutableStateOf<List<Item>>(emptyList())
+
+    /** A 6-digit code (15 minutes) for linking a phone. */
+    fun phoneCode(): String = phonePost("pair-code", JSONObject().put("key", key)).getString("code")
+
+    /** Signs every linked phone out. */
+    fun unlinkPhones() { phonePost("unlink", JSONObject().put("key", key)) }
+
+    /** Picks up what the phone added: each title found on this service goes into My List. */
+    fun processPhone() {
+        val k = key ?: return
+        val client = Session.client ?: return
+        if (!available) return
+        val arr = http.newCall(Request.Builder().url("$BASE/v1/phone/inbox/$k").header("Cache-Control", "no-store").build()).execute()
+            .use { r -> if (!r.isSuccessful) return; JSONObject(r.body?.string().orEmpty()).optJSONArray("items") } ?: return
+        val done = mutableListOf<String>(); val missing = mutableListOf<Item>()
+        for (o in (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }) {
+            val title = o.optString("title"); val year = o.optString("year").take(4).toIntOrNull(); val series = o.optBoolean("series")
+            val kind = if (series) "series" else "movies"
+            val type = Session.vodTypes[kind] ?: if (series) "series" else "vod"
+            val want = ca.sanjwad.tvplayer.stalker.TitleMatch.norm(title)
+            val hit = runCatching { client.search(type, title) }.getOrDefault(emptyList())
+                .filter { it.isSeries == series || Session.vodTypes["movies"] != Session.vodTypes["series"] }
+                .filter { ca.sanjwad.tvplayer.stalker.TitleMatch.norm(it.name) == want }
+                .sortedBy { val y = it.year.take(4).toIntOrNull(); if (year == null || y == null) 1 else kotlin.math.abs(y - year) }
+                .firstOrNull()
+            if (hit != null) {
+                android.os.Handler(android.os.Looper.getMainLooper()).post { if (!Library.inList(hit.id)) Library.toggleList(kind, type, hit) }
+                done += o.optString("id")
+            } else missing += Item(o.optString("id"), o.optLong("at"), "your phone", title, o.optString("year"), series,
+                o.optString("poster").ifBlank { null }, "")
+        }
+        phoneMissing.value = missing
+        if (done.isNotEmpty()) runCatching { phonePost("done", JSONObject().put("key", k).put("ids", JSONArray(done))) }
+    }
+
+    /** Removes a phone title that couldn't be found here. */
+    fun dismissPhone(id: String) {
+        phoneMissing.value = phoneMissing.value.filterNot { it.id == id }
+        val k = key ?: return
+        Thread { runCatching { phonePost("done", JSONObject().put("key", k).put("ids", JSONArray(listOf(id)))) } }.apply { isDaemon = true }.start()
+    }
+
+    private fun phonePost(path: String, body: JSONObject): JSONObject {
+        if (key == null) throw java.io.IOException("Log in first")
+        return http.newCall(Request.Builder().url("$BASE/v1/phone/$path").post(body.toString().toRequestBody(JSON)).build()).execute().use { r ->
+            val o = runCatching { JSONObject(r.body?.string().orEmpty()) }.getOrDefault(JSONObject())
+            if (!r.isSuccessful) throw java.io.IOException(o.optString("error").ifBlank { "Couldn't reach the phone service (${r.code})" })
+            o
+        }
+    }
+
     private fun parseFriends(a: JSONArray?) = (0 until (a?.length() ?: 0)).mapNotNull { a!!.optJSONObject(it) }
         .map { Friend(it.optString("code"), it.optString("name")) }
 

@@ -76,6 +76,7 @@ dependencies {
     implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.google.zxing:core:3.5.3") // QR code for linking a phone
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 }
