@@ -1091,6 +1091,27 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
             badgeFor = { item -> byId[item.id]?.second?.badge })
     }
 
+    /** Things you're partway through, with the time left; OK offers Resume / Start again / Details. */
+    @Composable
+    fun resumeRow(title: String, list: List<ca.sanjwad.tvplayer.Progress>) {
+        if (list.isEmpty()) return
+        val byKey = list.associateBy { it.key }
+        val tiles = list.map { p ->
+            VodItem(id = p.key, name = if (p.subtitle.isNotBlank() && p.seriesId != null) "${p.title} · ${p.subtitle}" else p.title,
+                description = p.subtitle, poster = p.poster, cmd = p.cmd, isSeries = false, year = "", rating = "")
+        }
+        PosterRow(title, tiles, { v ->
+            byKey[v.id]?.let { p ->
+                val series = p.seriesId != null
+                setHero(VodItem(id = p.seriesId ?: p.key.removePrefix("m:"), name = p.title,
+                    description = if (series) p.subtitle else "", poster = p.poster, cmd = p.cmd, isSeries = series,
+                    year = if (series) "" else p.subtitle, rating = ""))
+            }
+        },
+            onOpen = { v -> byKey[v.id]?.let { menuFor = it } },
+            badgeFor = { v -> byKey[v.id]?.let { "${((it.durMs - it.posMs) / 60_000).coerceAtLeast(1)}m left" } })
+    }
+
     val firstSaved = (newEps + notStarted + caughtUp).firstOrNull()?.first?.item ?: movies.firstOrNull()?.item
     LaunchedEffect(firstSaved?.id) { if (hero == null && firstSaved != null) setHero(firstSaved) }
     Column(Modifier.fillMaxSize()) {
@@ -1114,33 +1135,21 @@ fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Uni
                     }
                 }
             }
-            if (resume.isNotEmpty()) item {
-                val byKey = resume.associateBy { it.key }
-                val tiles = resume.map { p ->
-                    VodItem(id = p.key, name = if (p.subtitle.isNotBlank() && p.seriesId != null) "${p.title} · ${p.subtitle}" else p.title,
-                        description = p.subtitle, poster = p.poster, cmd = p.cmd, isSeries = false, year = "", rating = "")
-                }
-                // Moving along this row shows the title at the top, like every other row.
-                PosterRow("▶  Continue watching", tiles, { v ->
-                    byKey[v.id]?.let { p ->
-                        val series = p.seriesId != null
-                        setHero(VodItem(id = p.seriesId ?: p.key.removePrefix("m:"), name = p.title,
-                            description = if (series) p.subtitle else "", poster = p.poster, cmd = p.cmd, isSeries = series,
-                            year = if (series) "" else p.subtitle, rating = ""))
-                    }
-                },
-                    onOpen = { v -> byKey[v.id]?.let { menuFor = it } },
-                    badgeFor = { v -> byKey[v.id]?.let { "${((it.durMs - it.posMs) / 60_000).coerceAtLeast(1)}m left" } })
-            }
-            item { showRow("New episodes", newEps) }
-            item { showRow("Start watching", notStarted) }
+            // Grouped by kind: shows first, then movies (to start, then the ones you're partway through).
+            item { showRow("Shows — new episodes", newEps) }
+            item { resumeRow("Shows — continue watching", resume.filter { it.seriesId != null }) }
+            item { showRow("Shows — start watching", notStarted) }
             item { showRow("Checking for new episodes…", checking) }
-            if (movies.isNotEmpty()) item {
-                val byId = movies.associateBy { it.item.id }
-                PosterRow("Movies", movies.map { it.item }, setHero,
+            val resumeMovies = resume.filter { it.seriesId == null }
+            val partway = resumeMovies.map { it.key.removePrefix("m:") }.toSet()
+            val toStart = movies.filter { it.item.id !in partway }
+            if (toStart.isNotEmpty()) item {
+                val byId = toStart.associateBy { it.item.id }
+                PosterRow("Movies — to start", toStart.map { it.item }, setHero,
                     onOpen = { item -> byId[item.id]?.let { onOpen(it.type, item, null) } })
             }
-            item { showRow("Caught up — waiting for new episodes", caughtUp) }
+            item { resumeRow("Movies — continue watching", resumeMovies) }
+            item { showRow("Shows — caught up, waiting for new episodes", caughtUp) }
             // Right at the bottom: what this household has sent to friends.
             if (sentByMe.isNotEmpty()) item {
                 Column {
