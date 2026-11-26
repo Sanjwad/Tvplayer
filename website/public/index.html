@@ -56,6 +56,7 @@
   .stage{position:relative;z-index:2;margin:64px auto 0;max-width:900px}
   .tv{position:relative;aspect-ratio:16/9;border-radius:14px;background:#0F1720;border:10px solid #0B1117;
       box-shadow:0 40px 80px -30px rgba(10,20,30,.7);overflow:hidden;display:grid;grid-template-columns:7% 1fr}
+  .tv img{grid-column:1/-1;width:100%;height:100%;object-fit:cover;display:block}
   .tv .rail{background:#141D27;display:flex;flex-direction:column;align-items:center;gap:9%;padding-top:14%}
   .tv .rail i{display:block;width:34%;aspect-ratio:1;border-radius:3px;background:#3B4B5C}
   .tv .rail i.on{background:var(--ember)}
@@ -149,40 +150,8 @@
         <a class="btn btn-line" href="#pricing">See pricing</a>
       </div>
     </div>
-    <div class="stage" aria-hidden="true">
-      <div class="tv">
-        <div class="rail"><i></i><i></i><i class="on"></i><i></i><i></i><i></i></div>
-        <div class="screen">
-          <div>
-            <div class="title">Saturday night pick</div>
-            <div class="meta"><b>IMDb 7.8</b><b>TMDB 7.6</b></div>
-          </div>
-          <div class="row">
-            <h4>New this week</h4>
-            <div class="posters">
-              <span style="background:linear-gradient(160deg,#E5584B,#6B1F2A)"></span>
-              <span style="background:linear-gradient(160deg,#5EC8E5,#1D4A6B)"></span>
-              <span style="background:linear-gradient(160deg,#F4B860,#8A4B1F)"></span>
-              <span style="background:linear-gradient(160deg,#9B8AE0,#2E2463)"></span>
-              <span style="background:linear-gradient(160deg,#7FD1A6,#1E5A44)"></span>
-              <span style="background:linear-gradient(160deg,#E9E2D0,#7A6E58)"></span>
-              <span style="background:linear-gradient(160deg,#F28AB3,#5E1F3E)"></span>
-            </div>
-          </div>
-          <div class="row">
-            <h4>Continue watching</h4>
-            <div class="posters">
-              <span style="background:linear-gradient(160deg,#3D5A73,#16222D);outline:none"></span>
-              <span style="background:linear-gradient(160deg,#C2604A,#3B1C17)"></span>
-              <span style="background:linear-gradient(160deg,#F2D16B,#6B5A12)"></span>
-              <span style="background:linear-gradient(160deg,#6FA3C7,#22384B)"></span>
-              <span style="background:linear-gradient(160deg,#B9C4CC,#4A5864)"></span>
-              <span style="background:linear-gradient(160deg,#E07B39,#5A2A0E)"></span>
-              <span style="background:linear-gradient(160deg,#8CC084,#2D4A29)"></span>
-            </div>
-          </div>
-        </div>
-      </div>
+    <div class="stage">
+      <div class="tv"><img src="/shots/home.jpg" alt="TV Pal on a TV: the Movies screen with Scream 7 in the banner and a row of recently added films" width="1600" height="900"></div>
     </div>
   </div>
   <svg class="ridge" viewBox="0 0 1440 220" preserveAspectRatio="none" aria-hidden="true">
