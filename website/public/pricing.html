@@ -72,6 +72,11 @@
   .tv .posters span:first-child{outline:2px solid var(--ember);outline-offset:1px}
   .ridge{position:absolute;left:0;right:0;bottom:-1px;z-index:1;width:100%;height:auto;display:block}
   .hero-foot{position:relative;z-index:2;height:90px}
+  .notice{position:relative;z-index:2;max-width:46rem;margin:0 0 28px;padding:16px 20px;border-radius:12px;background:rgba(246,248,249,.1);border:1px solid rgba(246,248,249,.35);color:#E6EDF2;font-size:1rem;line-height:1.5}
+  .notice strong{color:var(--snow)}
+  .hero .notice{margin-top:22px}
+  main .notice{background:#EEF2F5;border-color:#C9D4DC;color:var(--ink)}
+  main .notice strong{color:var(--ink)}
   .slim{background:linear-gradient(180deg,#18222C 0%,var(--cloud) 70%,#2E4558 100%)}
   .slim::before{display:none}
   .slim .ridge{opacity:.9}
@@ -153,7 +158,8 @@
         <li><a href="/providers">Providers</a></li>
       </ul>
     </nav>
-    <div class="hero"><h1>Simple pricing</h1></div>
+    <div class="hero"><h1>Simple pricing</h1>
+      <div class="notice" role="note"><strong>Please note:</strong> TV Pal is a media player only. It doesn't come with any channels, movies or shows, and it isn't connected to any TV provider. To watch anything, you sign in with a subscription you already have. Paying for TV Pal unlocks the app's features only; it never includes or gives access to any content.</div></div>
   </div>
   <svg class="ridge" viewBox="0 0 1440 220" preserveAspectRatio="none" aria-hidden="true">
     <path fill="#2E4558" d="M0 150 L120 96 L190 128 L300 52 L380 112 L470 70 L560 130 L650 84 L720 34 L800 98 L900 60 L990 120 L1080 76 L1170 118 L1260 66 L1350 104 L1440 80 L1440 220 L0 220Z"/>
