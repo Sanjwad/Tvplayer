@@ -30,7 +30,7 @@ async function show(){
   const d = await post("/api/account", { code });
   if (d.error) { $("acct").hidden = true; $("err").textContent = d.error; return; }
   code = d.code; try { localStorage.setItem("code", code) } catch(e) {}
-  $("plan").textContent = d.plan === "lifetime" ? "Lifetime plan" : "Monthly plan";
+  $("plan").textContent = d.plan === "lifetime" ? "Lifetime plan" : d.plan === "yearly" ? "Yearly plan" : "Monthly plan";
   $("status").textContent = d.active ? "Active" : "Not active: update your payment details below to keep watching.";
   $("count").textContent = d.tvs.length + " of " + d.max;
   $("tvs").innerHTML = "";

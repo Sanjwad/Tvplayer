@@ -13,8 +13,9 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
       # Prices in cents. Change them under Settings > Secrets and variables > Actions > Variables.
-      PRICE_MONTHLY_CENTS: ${{ vars.PRICE_MONTHLY_CENTS || '200' }}
-      PRICE_LIFETIME_CENTS: ${{ vars.PRICE_LIFETIME_CENTS || '4000' }}
+      PRICE_MONTHLY_CENTS: ${{ vars.PRICE_MONTHLY_CENTS || '250' }}
+      PRICE_YEARLY_CENTS: ${{ vars.PRICE_YEARLY_CENTS || '2000' }}
+      PRICE_LIFETIME_CENTS: ${{ vars.PRICE_LIFETIME_CENTS || '4500' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

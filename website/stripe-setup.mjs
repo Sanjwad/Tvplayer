@@ -3,8 +3,9 @@
 const KEY = process.env.STRIPE_SECRET_KEY;
 const SITE = "https://tvpal.ca";
 const CURRENCY = (process.env.CURRENCY || "cad").toLowerCase();
-const MONTHLY = parseInt(process.env.PRICE_MONTHLY_CENTS || "200", 10);
-const LIFETIME = parseInt(process.env.PRICE_LIFETIME_CENTS || "4000", 10);
+const MONTHLY = parseInt(process.env.PRICE_MONTHLY_CENTS || "250", 10);
+const YEARLY = parseInt(process.env.PRICE_YEARLY_CENTS || "2000", 10);
+const LIFETIME = parseInt(process.env.PRICE_LIFETIME_CENTS || "4500", 10);
 const NEED_SECRET = process.env.NEED_WEBHOOK_SECRET === "1";
 const EVENTS = ["checkout.session.completed", "checkout.session.async_payment_succeeded",
   "customer.subscription.updated", "customer.subscription.deleted", "invoice.payment_failed", "charge.refunded"];
@@ -39,16 +40,17 @@ if (!product) product = await api("POST", "products", { id: "chinooktv", name: "
 console.log("Product:", product.id);
 
 // prices (Stripe prices can't be edited, so a new amount means a new price that takes over the lookup key)
-async function ensurePrice(lookup, amount, recurring, nickname) {
+async function ensurePrice(lookup, amount, recurring, nickname) {  // recurring: "month", "year" or false
   const cur = (await api("GET", `prices?active=true&lookup_keys[]=${lookup}`)).data[0];
-  if (cur && cur.unit_amount === amount && cur.currency === CURRENCY) { console.log(`${nickname}: ${amount / 100} ${CURRENCY} (unchanged)`); return; }
+  if (cur && cur.unit_amount === amount && cur.currency === CURRENCY && (cur.recurring && cur.recurring.interval || false) === recurring) { console.log(`${nickname}: ${amount / 100} ${CURRENCY} (unchanged)`); return; }
   await api("POST", "prices", { product: "chinooktv", currency: CURRENCY, unit_amount: amount, nickname,
     lookup_key: lookup, transfer_lookup_key: "true", tax_behavior: "exclusive",
-    recurring: recurring ? { interval: "month" } : undefined });
+    recurring: recurring ? { interval: recurring } : undefined });
   if (cur) await api("POST", "prices/" + cur.id, { active: "false" });
   console.log(`${nickname}: now ${amount / 100} ${CURRENCY}`);
 }
-await ensurePrice("chinook_monthly", MONTHLY, true, "Monthly");
+await ensurePrice("chinook_monthly", MONTHLY, "month", "Monthly");
+await ensurePrice("chinook_yearly", YEARLY, "year", "Yearly");
 await ensurePrice("chinook_lifetime", LIFETIME, false, "Lifetime");
 
 // webhook

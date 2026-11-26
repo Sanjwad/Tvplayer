@@ -4,7 +4,7 @@
 const HOME = "tvpal.ca";
 const APK = "https://github.com/Sanjwad/Tvplayer/releases/download/latest/tvplayer.apk";
 const MAX_TVS = 5;
-const PLANS = { monthly: "chinook_monthly", lifetime: "chinook_lifetime" };
+const PLANS = { monthly: "chinook_monthly", yearly: "chinook_yearly", lifetime: "chinook_lifetime" };
 
 export default {
   async fetch(req, env) {
@@ -75,20 +75,20 @@ async function prices(env) {
 // ---------- checkout ----------
 async function checkout(req, env, url) {
   const { plan, ref } = await req.json().catch(() => ({}));
-  if (!PLANS[plan]) return json({ error: "Choose monthly or lifetime." }, 400);
+  if (!PLANS[plan]) return json({ error: "Choose monthly, yearly or lifetime." }, 400);
   const referral = cleanRef(ref);
   const base = `https://${url.host}`;
   const params = {
-    mode: plan === "monthly" ? "subscription" : "payment",
+    mode: plan === "lifetime" ? "payment" : "subscription",
     line_items: { 0: { price: await priceFor(env, plan), quantity: 1 } },
     success_url: `${base}/thanks.html?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${base}/#pricing`,
+    cancel_url: `${base}/pricing`,
     allow_promotion_codes: "true",
     billing_address_collection: "auto",
     client_reference_id: referral || undefined,
     metadata: { plan, ref: referral || "" },
   };
-  if (plan === "monthly") {
+  if (plan !== "lifetime") {
     params.subscription_data = { metadata: { plan, ref: referral || "" } };
   } else {
     // one-off payments get a proper invoice/receipt too
