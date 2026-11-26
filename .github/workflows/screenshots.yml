@@ -9,6 +9,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: write
+
 jobs:
   fetch:
     runs-on: ubuntu-latest
@@ -31,6 +34,13 @@ jobs:
             jq -R . keys.txt | jq -s . | curl -fsS -X POST -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
               --data @- "$api/$ns/bulk/delete" | jq -c '{success}'
           fi
+      - name: Save to the shots branch
+        run: |
+          [ -n "$(ls shots)" ] || exit 0
+          cd shots && git init -q && git checkout -q -b shots
+          git -c user.name=bot -c user.email=bot@users.noreply.github.com add . 
+          git -c user.name=bot -c user.email=bot@users.noreply.github.com commit -qm "Screenshots"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" shots
       - uses: actions/upload-artifact@v4
         with:
           name: screenshots
