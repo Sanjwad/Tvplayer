@@ -52,5 +52,5 @@ jobs:
       - name: Check site
         run: |
           sleep 15
-          curl -sS -o /dev/null -w "home %{http_code}\n" --max-time 20 https://chinooktv.com || true
-          curl -sS --max-time 20 https://chinooktv.com/api/prices; echo
+          curl -sS -o /dev/null -w "home %{http_code}\n" --max-time 20 https://tvpal.ca || true
+          curl -sS --max-time 20 https://tvpal.ca/api/prices; echo

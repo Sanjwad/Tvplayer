@@ -1,7 +1,7 @@
-// ChinookTV site + accounts API.
+// TV Pal site + accounts API (chinooktv.com/.ca redirect here until they lapse).
 // Payments go through Stripe Checkout; the webhook turns a paid checkout into an
 // activation code that works on up to 5 TVs.
-const HOME = "chinooktv.com";
+const HOME = "tvpal.ca";
 const APK = "https://github.com/Sanjwad/Tvplayer/releases/download/latest/tvplayer.apk";
 const MAX_TVS = 5;
 const PLANS = { monthly: "chinook_monthly", lifetime: "chinook_lifetime" };
@@ -215,13 +215,13 @@ async function activate(req, env) {
   const { code, device, name } = await req.json().catch(() => ({}));
   const [c, acct] = await load(env, code);
   if (!acct) return json({ ok: false, error: "That code wasn't found. Check it and try again." }, 404);
-  if (!isActive(acct)) return json({ ok: false, error: "This account isn't active. Visit chinooktv.com/account to fix it." }, 402);
+  if (!isActive(acct)) return json({ ok: false, error: "This account isn't active. Visit tvpal.ca/account to fix it." }, 402);
   const id = String(device || "").slice(0, 64);
   if (!id) return json({ ok: false, error: "Missing device" }, 400);
   let tv = acct.tvs.find(t => t.id === id);
   if (!tv) {
     if (acct.tvs.length >= MAX_TVS)
-      return json({ ok: false, error: `This code is already on ${MAX_TVS} TVs. Remove one at chinooktv.com/account.` }, 409);
+      return json({ ok: false, error: `This code is already on ${MAX_TVS} TVs. Remove one at tvpal.ca/account.` }, 409);
     tv = { id, name: String(name || "TV").slice(0, 40), added: Date.now() };
     acct.tvs.push(tv);
     await env.ACCOUNTS.put("acct:" + c, JSON.stringify(acct));

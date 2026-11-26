@@ -20,7 +20,7 @@ class OpenSubs(private val key: String, private val user: String = "", private v
     @Volatile private var token: String? = null
 
     private fun req(url: String) = Request.Builder().url(url)
-        .header("Api-Key", key).header("User-Agent", "SanjTV v1.0").header("Accept", "application/json")
+        .header("Api-Key", key).header("User-Agent", "TVPal v1.0").header("Accept", "application/json")
         .apply { token?.let { header("Authorization", "Bearer $it") } }
 
     private fun fail(code: Int, body: String): Nothing {
@@ -86,7 +86,7 @@ class OpenSubs(private val key: String, private val user: String = "", private v
             JSONObject(b).optString("link").takeIf { it.startsWith("http") } ?: throw IOException("OpenSubtitles gave no download link.")
         }
         val out = File(dir, "sub_${sub.fileId}.srt")
-        http.newCall(Request.Builder().url(link).header("User-Agent", "SanjTV v1.0").build()).execute().use { r ->
+        http.newCall(Request.Builder().url(link).header("User-Agent", "TVPal v1.0").build()).execute().use { r ->
             if (!r.isSuccessful) throw IOException("Couldn't download the subtitle (${r.code}).")
             out.outputStream().use { o -> r.body!!.byteStream().copyTo(o) }
         }

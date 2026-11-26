@@ -142,7 +142,7 @@ fun HomeScreen(
             ) {
                 if (menuFocused) Logo(22.sp, Modifier.padding(start = 6.dp))
                 else androidx.compose.foundation.Image(
-                    androidx.compose.ui.res.painterResource(ca.sanjwad.tvplayer.R.drawable.ic_launcher), contentDescription = "Sanj TV",
+                    androidx.compose.ui.res.painterResource(ca.sanjwad.tvplayer.R.drawable.ic_launcher), contentDescription = "TV Pal",
                     modifier = Modifier.padding(start = 6.dp).size(34.dp),
                 )
                 Spacer(Modifier.height(10.dp))
@@ -210,7 +210,7 @@ private fun ExitDialog(onClose: () -> Unit, onStay: () -> Unit) {
     androidx.compose.ui.window.Dialog(onDismissRequest = onStay,
         properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.width(420.dp).clip(RoundedCornerShape(14.dp)).background(Panel).padding(28.dp)) {
-            Text("Close Sanj TV?", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Text("Close TV Pal?", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Spacer(Modifier.height(6.dp))
             Text("Press Back to stay.", fontSize = 14.sp, color = TextDim)
             Spacer(Modifier.height(20.dp))

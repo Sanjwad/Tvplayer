@@ -45,14 +45,14 @@ object PortalLog {
      */
     fun share(): String {
         val mac = Regex("[0-9A-Fa-f]{2}(?:(?::|%3A|%3a)[0-9A-Fa-f]{2}){5}")
-        val text = (listOf("Sanj TV portal log, ${java.util.Date()}", "", "PINNED:") + pinned +
+        val text = (listOf("TV Pal portal log, ${java.util.Date()}", "", "PINNED:") + pinned +
             listOf("", "LOG (oldest first):") + all()).joinToString("\n").replace(mac, "[MAC hidden]")
         val http = okhttp3.OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).build()
         val tries = listOf(
-            okhttp3.Request.Builder().url("https://dpaste.com/api/v2/").header("User-Agent", "SanjTV/1.0")
+            okhttp3.Request.Builder().url("https://dpaste.com/api/v2/").header("User-Agent", "TVPal/1.0")
                 .post(okhttp3.FormBody.Builder().add("content", text).add("syntax", "text")
-                    .add("expiry_days", "2").add("title", "Sanj TV portal log").build()).build(),
-            okhttp3.Request.Builder().url("https://paste.rs/").header("User-Agent", "SanjTV/1.0")
+                    .add("expiry_days", "2").add("title", "TV Pal portal log").build()).build(),
+            okhttp3.Request.Builder().url("https://paste.rs/").header("User-Agent", "TVPal/1.0")
                 .post(text.toRequestBody("text/plain".toMediaType())).build(),
         )
         var err = "no reply"

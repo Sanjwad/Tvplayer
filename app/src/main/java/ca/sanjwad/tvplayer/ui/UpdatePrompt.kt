@@ -92,7 +92,7 @@ fun UpdatePrompt() {
         Column(Modifier.width(500.dp).clip(RoundedCornerShape(14.dp)).background(Panel).padding(28.dp)) {
             Text("Update available", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Spacer(Modifier.height(6.dp))
-            Text("Sanj TV build ${u.versionCode} is ready. You have build ${BuildConfig.VERSION_CODE}.", fontSize = 15.sp, color = TextDim)
+            Text("TV Pal build ${u.versionCode} is ready. You have build ${BuildConfig.VERSION_CODE}.", fontSize = 15.sp, color = TextDim)
             Spacer(Modifier.height(18.dp))
             if (state == "downloading") {
                 Text("Downloading…  ${(progress * 100).toInt()}%", fontSize = 15.sp, color = Color.White)
@@ -102,7 +102,7 @@ fun UpdatePrompt() {
                 }
             } else {
                 if (state == "allow") {
-                    Text("Android needs your OK first: turn on Sanj TV in the screen that just opened, press Back, then choose Update now again.",
+                    Text("Android needs your OK first: turn on TV Pal in the screen that just opened, press Back, then choose Update now again.",
                         fontSize = 14.sp, color = Accent)
                     Spacer(Modifier.height(12.dp))
                 }

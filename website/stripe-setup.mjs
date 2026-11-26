@@ -1,7 +1,7 @@
-// Run by the Website workflow. Makes sure Stripe has the ChinookTV product, the two prices,
+// Run by the Website workflow. Makes sure Stripe has the TV Pal product, the two prices,
 // the webhook and the customer billing page. Safe to run again and again.
 const KEY = process.env.STRIPE_SECRET_KEY;
-const SITE = "https://chinooktv.com";
+const SITE = "https://tvpal.ca";
 const CURRENCY = (process.env.CURRENCY || "cad").toLowerCase();
 const MONTHLY = parseInt(process.env.PRICE_MONTHLY_CENTS || "200", 10);
 const LIFETIME = parseInt(process.env.PRICE_LIFETIME_CENTS || "4000", 10);
@@ -34,7 +34,7 @@ async function api(method, path, body, okMissing = false) {
 
 // product
 let product = await api("GET", "products/chinooktv", null, true);
-if (!product) product = await api("POST", "products", { id: "chinooktv", name: "ChinookTV",
+if (!product) product = await api("POST", "products", { id: "chinooktv", name: "TV Pal",
   description: "IPTV player for Android TV and Fire TV. One account covers up to 5 TVs." });
 console.log("Product:", product.id);
 
@@ -59,7 +59,7 @@ if (hooks.length && !NEED_SECRET) {
   console.log("Webhook: up to date");
 } else {
   for (const h of hooks) await api("DELETE", "webhook_endpoints/" + h.id);
-  const h = await api("POST", "webhook_endpoints", { url, enabled_events: EVENTS, description: "ChinookTV accounts" });
+  const h = await api("POST", "webhook_endpoints", { url, enabled_events: EVENTS, description: "TV Pal accounts" });
   writeFileSync("webhook-secret.txt", h.secret);
   console.log("Webhook: created (new signing secret saved to the site)");
 }
@@ -67,7 +67,7 @@ if (hooks.length && !NEED_SECRET) {
 // customer billing page (update card, invoices, cancel)
 const confs = (await api("GET", "billing_portal/configurations?is_default=true&active=true")).data;
 const portal = {
-  business_profile: { headline: "ChinookTV: manage your plan" },
+  business_profile: { headline: "TV Pal: manage your plan" },
   default_return_url: SITE + "/account.html",
   features: {
     customer_update: { enabled: "true", allowed_updates: ["email", "address"] },

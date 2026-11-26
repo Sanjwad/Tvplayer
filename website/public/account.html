@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Your ChinookTV account</title><link rel="icon" href="/icon.png">
+<title>Your TV Pal account</title><link rel="icon" href="/icon.png">
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800&family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/page.css"></head>
 <body>
-<header><div class="wrap"><a class="brand" href="/"><img src="/icon.png" alt="">ChinookTV</a><h1>Your account</h1></div></header>
+<header><div class="wrap"><a class="brand" href="/"><img src="/icon.png" alt="">TV Pal</a><h1>Your account</h1></div></header>
 <main class="wrap">
   <form id="f">
     <label for="c">Activation code</label><br>
@@ -18,7 +18,7 @@
     <h3>TVs using this code (<span id="count"></span>)</h3>
     <ul class="tvs" id="tvs"></ul>
     <p id="billing" hidden><button class="btn warm" id="portal">Manage billing and receipts</button></p>
-    <p class="muted">Lost your code? Contact <a href="mailto:hello@chinooktv.com">hello@chinooktv.com</a> with the email you paid with.</p>
+    <p class="muted">Lost your code? Contact <a href="mailto:hello@tvpal.ca">hello@tvpal.ca</a> with the email you paid with.</p>
   </div>
 </main>
 <script>
@@ -34,7 +34,7 @@ async function show(){
   $("status").textContent = d.active ? "Active" : "Not active: update your payment details below to keep watching.";
   $("count").textContent = d.tvs.length + " of " + d.max;
   $("tvs").innerHTML = "";
-  if (!d.tvs.length) $("tvs").innerHTML = "<li class='muted'>No TVs yet. Enter this code in ChinookTV under Settings → Activate.</li>";
+  if (!d.tvs.length) $("tvs").innerHTML = "<li class='muted'>No TVs yet. Enter this code in TV Pal under Settings → Activate.</li>";
   for (const t of d.tvs) {
     const li = document.createElement("li");
     li.textContent = t.name + " · added " + new Date(t.added).toLocaleDateString();

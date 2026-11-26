@@ -27,7 +27,7 @@ object Wikidata {
         val url = "https://query.wikidata.org/sparql".toHttpUrl().newBuilder()
             .addQueryParameter("query", q).addQueryParameter("format", "json").build()
         val req = Request.Builder().url(url)
-            .header("User-Agent", "SanjTV/1.0 (Android TV media app)")
+            .header("User-Agent", "TVPal/1.0 (Android TV media app)")
             .header("Accept", "application/sparql-results+json").build()
         val rows = http.newCall(req).execute().use { r ->
             if (!r.isSuccessful) return Facts(emptyList(), emptyList(), emptyList())

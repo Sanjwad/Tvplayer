@@ -532,7 +532,7 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
         }, modifier = w, shape = RoundedCornerShape(10.dp)) {
             Row(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("When Sanj TV starts, open", fontSize = 15.sp, color = Color.White)
+                    Text("When TV Pal starts, open", fontSize = 15.sp, color = Color.White)
                     Text("Press OK to change", fontSize = 12.sp, color = TextDim)
                 }
                 Text(startChoices.firstOrNull { it.first == startOn }?.second ?: "Last live channel", fontSize = 15.sp,
@@ -595,7 +595,7 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
             Spacer(Modifier.height(10.dp))
             Column(w.clip(RoundedCornerShape(10.dp)).background(Panel).padding(18.dp)) {
                 Text("Your own TMDB key", fontSize = 15.sp, color = Color.White)
-                Text(if (ca.sanjwad.tvplayer.BuildConfig.TMDB_KEY.isNotBlank()) "Optional. Sanj TV already has a built-in key; leave this empty to use it."
+                Text(if (ca.sanjwad.tvplayer.BuildConfig.TMDB_KEY.isNotBlank()) "Optional. TV Pal already has a built-in key; leave this empty to use it."
                     else "Optional. Adds Trending rows and episode descriptions.", fontSize = 13.sp, color = TextDim)
                 Spacer(Modifier.height(10.dp))
                 TvTextField(
@@ -650,7 +650,7 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
 
         // ---- About
         Spacer(Modifier.height(28.dp))
-        Text("Sanj TV${if (ca.sanjwad.tvplayer.BuildConfig.TEST_BUILD) " Test" else ""}  ·  build ${ca.sanjwad.tvplayer.BuildConfig.VERSION_CODE}", fontSize = 13.sp, color = TextDim, modifier = w)
+        Text("TV Pal${if (ca.sanjwad.tvplayer.BuildConfig.TEST_BUILD) " Test" else ""}  ·  build ${ca.sanjwad.tvplayer.BuildConfig.VERSION_CODE}", fontSize = 13.sp, color = TextDim, modifier = w)
         Spacer(Modifier.height(8.dp))
         Row(w, verticalAlignment = Alignment.CenterVertically) {
             Text("TMDB", Modifier.clip(RoundedCornerShape(4.dp)).background(Color(0xFF0D253F))
@@ -1734,7 +1734,7 @@ private fun MoreAccounts(prefs: Prefs, w: Modifier, onChanged: () -> Unit) {
             adding = true; err = null
             stalker = xtCount >= 2; label = ""; server = ""; user = ""; pass = ""; portal = ""
             mac = prefs.extraMac(extras.count { it.stalker })
-        }) else Text("That's the most accounts Sanj TV can show at once.", fontSize = 13.sp, color = TextDim, modifier = w)
+        }) else Text("That's the most accounts TV Pal can show at once.", fontSize = 13.sp, color = TextDim, modifier = w)
         return
     }
     Column(w.clip(RoundedCornerShape(10.dp)).background(Color(0x14FFFFFF)).padding(16.dp)) {
@@ -1787,7 +1787,7 @@ private fun PhoneSettings(w: Modifier) {
     var code by remember { mutableStateOf<String?>(null) }
     var note by remember { mutableStateOf<String?>(null) }
     Text("PHONE", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextDim, modifier = w)
-    Text("Add films and shows to My List from your phone, e.g. when someone recommends one. They appear here next time Sanj TV opens.",
+    Text("Add films and shows to My List from your phone, e.g. when someone recommends one. They appear here next time TV Pal opens.",
         fontSize = 13.sp, color = TextDim, modifier = w)
     Spacer(Modifier.height(8.dp))
     Row(w, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1881,7 +1881,7 @@ private fun FriendsSettings(prefs: ca.sanjwad.tvplayer.Prefs, w: Modifier) {
         }
     }
     Text("Friends", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Color.White, modifier = w)
-    Text("Send a movie or show to a friend's Sanj TV. It appears in their My List under \"Sent to you\".",
+    Text("Send a movie or show to a friend's TV Pal. It appears in their My List under \"Sent to you\".",
         fontSize = 13.sp, color = TextDim, modifier = w)
     Spacer(Modifier.height(10.dp))
     if (code == null) {

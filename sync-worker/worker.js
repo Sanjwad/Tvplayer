@@ -1,6 +1,6 @@
 import { PHONE_HTML } from "./phone.js";
 // v2
-// Sanj TV sync + sharing.
+// TV Pal (formerly Sanj TV) sync + sharing.
 //
 // Sync: each household's My List, favourites and watched progress, under a 64-character key the
 // app derives from its IPTV login (a SHA-256 hash, so the login itself never leaves the TV).
@@ -41,7 +41,7 @@ export default {
     if (path === "/") return json({ ok: true, service: "sanjtv-sync" });
     if (path === "/phone" || path === "/phone/") return new Response(PHONE_HTML, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" } });
     if (path === "/phone/manifest.json") return new Response(JSON.stringify({
-      name: "Sanj TV", short_name: "Sanj TV", start_url: "/phone", display: "standalone",
+      name: "TV Pal", short_name: "TV Pal", start_url: "/phone", display: "standalone",
       background_color: "#0A101E", theme_color: "#0A101E",
     }), { headers: { "Content-Type": "application/manifest+json" } });
     if (path.startsWith("/v1/phone/")) {
@@ -337,9 +337,9 @@ async function phone(req, env, rest) {
   const url = new URL(req.url);
   const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
   const tokenKey = async t => {
-    if (!/^[0-9a-f]{32}$/.test(t || "")) throw new Error("This phone isn't linked. Pair it again from Sanj TV.");
+    if (!/^[0-9a-f]{32}$/.test(t || "")) throw new Error("This phone isn't linked. Pair it again from TV Pal.");
     const rec = await getJ(env, "phone:tok:" + t);
-    if (!rec) throw new Error("This phone isn't linked. Pair it again from Sanj TV.");
+    if (!rec) throw new Error("This phone isn't linked. Pair it again from TV Pal.");
     return rec.key;
   };
 

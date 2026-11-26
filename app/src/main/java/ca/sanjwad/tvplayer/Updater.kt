@@ -69,7 +69,7 @@ object Updater {
         return out
     }
 
-    /** True if Android will let Sanj TV install updates; otherwise opens the setting to allow it. */
+    /** True if Android will let TV Pal install updates; otherwise opens the setting to allow it. */
     fun ensureInstallAllowed(ctx: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
         if (ctx.packageManager.canRequestPackageInstalls()) return true

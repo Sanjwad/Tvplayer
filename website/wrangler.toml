@@ -4,6 +4,8 @@ compatibility_date = "2025-01-01"
 workers_dev = true
 
 routes = [
+  { pattern = "tvpal.ca", custom_domain = true },
+  { pattern = "www.tvpal.ca", custom_domain = true },
   { pattern = "chinooktv.com", custom_domain = true },
   { pattern = "www.chinooktv.com", custom_domain = true },
   { pattern = "chinooktv.ca", custom_domain = true },

@@ -36,7 +36,7 @@ jobs:
           TMDB_KEY: ${{ secrets.TMDB_KEY }}
           OMDB_KEY: ${{ secrets.OMDB_KEY }}
           OPENSUBS_KEY: ${{ secrets.OPENSUBS_KEY }}
-          # Anything but main builds "Sanj TV Test", which installs beside Sanj TV.
+          # Anything but main builds "TV Pal Test", which installs beside TV Pal.
           SANJ_TEST: ${{ github.ref_name == 'main' && '0' || '1' }}
         run: |
           set -o pipefail
@@ -60,7 +60,7 @@ jobs:
           echo '{"versionCode": ${{ github.run_number }}, "versionName": "0.1.${{ github.run_number }}"}' > version.json
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest tvplayer.apk version.json \
-            --title "Sanj TV build ${{ github.run_number }}" \
+            --title "TV Pal build ${{ github.run_number }}" \
             --notes "Version 0.1.${{ github.run_number }}" \
             --target "${{ github.sha }}" --latest
 
@@ -73,6 +73,6 @@ jobs:
           echo '{"versionCode": ${{ github.run_number }}, "versionName": "0.1.${{ github.run_number }}-test"}' > version.json
           gh release delete stalker-test --yes --cleanup-tag || true
           gh release create stalker-test tvplayer.apk version.json \
-            --title "Sanj TV Test build ${{ github.run_number }}" \
-            --notes "Test build from ${{ github.ref_name }}. Installs beside Sanj TV." \
+            --title "TV Pal Test build ${{ github.run_number }}" \
+            --notes "Test build from ${{ github.ref_name }}. Installs beside TV Pal." \
             --target "${{ github.sha }}" --prerelease --latest=false

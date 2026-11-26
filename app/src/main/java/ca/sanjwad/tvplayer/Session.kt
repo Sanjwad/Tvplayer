@@ -61,7 +61,7 @@ class Prefs(ctx: Context) {
     var omdbKey: String
         get() = sp.getString("omdb_key", "").orEmpty()
         set(v) = sp.edit().putString("omdb_key", v).apply()
-    /** Where Sanj TV opens: "live" (last live channel playing), "home" (Live TV list) or "mylist". */
+    /** Where TV Pal opens: "live" (last live channel playing), "home" (Live TV list) or "mylist". */
     var startOn: String
         // Before this choice existed it was an on/off switch for the last live channel.
         get() = sp.getString("start_on", null) ?: if (sp.getBoolean("start_last_channel", true)) "live" else "home"

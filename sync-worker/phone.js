@@ -1,15 +1,15 @@
-// The phone page: search for a film or show and add it to My List on your Sanj TVs.
+// The phone page: search for a film or show and add it to My List on your TV Pals.
 // Saved to the phone's home screen. Plain JS (no template literals) so it can live in this string.
 export const PHONE_HTML = `<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Sanj TV">
+<meta name="apple-mobile-web-app-title" content="TV Pal">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0A101E">
 <link rel="manifest" href="/phone/manifest.json">
-<title>Sanj TV</title>
+<title>TV Pal</title>
 <style>
   :root{--bg:#0A101E;--card:#141C2E;--line:#243049;--text:#EEF2F7;--dim:#93A0B4;--accent:#FF6F61;--ok:#4FD18B}
   *{box-sizing:border-box}
@@ -56,8 +56,8 @@ function api(path, body) {
 }
 
 function showPair(err) {
-  app.innerHTML = '<div class="pair"><h1>Sanj <b>TV</b></h1>' +
-    '<p>On your TV, open Sanj TV and go to <b>Settings &rarr; Phone</b>, then press <b>Link a phone</b>. Type the 6-digit code it shows.</p>' +
+  app.innerHTML = '<div class="pair"><h1>TV <b>Pal</b></h1>' +
+    '<p>On your TV, open TV Pal and go to <b>Settings &rarr; Phone</b>, then press <b>Link a phone</b>. Type the 6-digit code it shows.</p>' +
     '<input id="code" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code">' +
     '<button id="go">Link this phone</button><div class="err" id="err">' + esc(err || "") + '</div></div>';
   var code = document.getElementById("code");
@@ -73,13 +73,13 @@ function showPair(err) {
 
 var added = {};
 function showMain() {
-  app.innerHTML = '<header><h1>Sanj <b>TV</b></h1><input id="q" type="search" placeholder="Search movies and TV shows" autocomplete="off"></header>' +
-    '<main><div id="res"><p class="msg">Find something you\\'d like to watch, then tap <b>Add to My List</b>. It\\'ll be on your TVs next time Sanj TV opens.</p></div>' +
+  app.innerHTML = '<header><h1>TV <b>Pal</b></h1><input id="q" type="search" placeholder="Search movies and TV shows" autocomplete="off"></header>' +
+    '<main><div id="res"><p class="msg">Find something you\\'d like to watch, then tap <b>Add to My List</b>. It\\'ll be on your TVs next time TV Pal opens.</p></div>' +
     '<div id="wait"></div><p class="small" style="text-align:center;margin-top:30px"><button class="link" id="out">Unlink this phone</button></p></main>';
   var q = document.getElementById("q"), timer = null;
   q.oninput = function () { clearTimeout(timer); timer = setTimeout(function () { search(q.value); }, 350); };
   document.getElementById("out").onclick = function () {
-    if (!confirm("Unlink this phone from Sanj TV?")) return;
+    if (!confirm("Unlink this phone from TV Pal?")) return;
     try { localStorage.removeItem("sanjtv_token"); } catch (e) {}
     token = null; showPair();
   };
@@ -131,7 +131,7 @@ function loadWaiting() {
     var w = document.getElementById("wait");
     if (!w || !d.items) return;
     if (!d.items.length) { w.innerHTML = ""; return; }
-    w.innerHTML = '<h2>On its way to your TV</h2><p class="small" style="margin:0 4px">These go into My List the next time Sanj TV opens.</p>' +
+    w.innerHTML = '<h2>On its way to your TV</h2><p class="small" style="margin:0 4px">These go into My List the next time TV Pal opens.</p>' +
       d.items.map(function (i) { return '<div class="row" style="padding:8px">' +
         (i.poster ? '<img src="' + esc(i.poster) + '" alt="" style="width:44px;height:66px">' : '') +
         '<div class="info" style="justify-content:center"><div class="t">' + esc(i.title) + '</div><div class="m">' +
