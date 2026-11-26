@@ -27,6 +27,9 @@ class MainActivity : ComponentActivity() {
         setContent { AppTheme { App() } }
     }
 
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =
+        Shots.intercept(this, event) { super.dispatchKeyEvent(it) } ?: super.dispatchKeyEvent(event)
+
     // Coming back to the app (e.g. after watching on another TV): pick up changes straight away.
     override fun onResume() {
         super.onResume()

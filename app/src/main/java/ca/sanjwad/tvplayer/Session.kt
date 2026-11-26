@@ -69,6 +69,10 @@ class Prefs(ctx: Context) {
     val startOnLastChannel: Boolean get() = startOn == "live"
     /** Share My List, favourites and watched progress with other TVs on the same login. */
     /** Pop up "an update is ready" when the app opens. Off: updates only via Settings → Check for updates. */
+    /** Test builds: hold Back to take a screenshot for the website. */
+    var screenshotKey: Boolean
+        get() = sp.getBoolean("screenshot_key", true)
+        set(v) = sp.edit().putBoolean("screenshot_key", v).apply()
     var updatePrompts: Boolean
         get() = sp.getBoolean("update_prompts", true)
         set(v) = sp.edit().putBoolean("update_prompts", v).apply()

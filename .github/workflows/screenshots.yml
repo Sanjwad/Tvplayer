@@ -1,0 +1,38 @@
+name: Fetch screenshots
+
+# Collects the screenshots taken with "Hold Back" in TV Pal Test and attaches them to this run.
+on:
+  workflow_dispatch:
+    inputs:
+      clear:
+        description: "Delete them from Cloudflare afterwards"
+        type: boolean
+        default: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    env:
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Download
+        run: |
+          api="https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/storage/kv/namespaces"
+          ns=$(curl -fsS -H "Authorization: Bearer $CF_TOKEN" "$api?per_page=100" | jq -r '.result[] | select(.title=="sanjtv-sync") | .id' | head -1)
+          mkdir shots
+          curl -fsS -H "Authorization: Bearer $CF_TOKEN" "$api/$ns/keys?prefix=shot:&limit=1000" | jq -r '.result[].name' > keys.txt
+          echo "$(wc -l < keys.txt) screenshots"
+          while read -r k; do
+            curl -fsS -H "Authorization: Bearer $CF_TOKEN" "$api/$ns/values/$k" -o "shots/${k#shot:}.jpg"
+          done < keys.txt
+          ls -la shots
+          if [ "${{ inputs.clear }}" = "true" ] && [ -s keys.txt ]; then
+            jq -R . keys.txt | jq -s . | curl -fsS -X POST -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+              --data @- "$api/$ns/bulk/delete" | jq -c '{success}'
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: shots/
+          if-no-files-found: warn

@@ -490,6 +490,21 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
                             color = if (prompts) Accent else TextDim)
                     }
                 }
+                if (ca.sanjwad.tvplayer.BuildConfig.TEST_BUILD) {
+                    Spacer(Modifier.height(10.dp))
+                    var shots by remember { mutableStateOf(prefs.screenshotKey) }
+                    FocusBox(onClick = { shots = !shots; prefs.screenshotKey = shots }, modifier = w, shape = RoundedCornerShape(10.dp)) {
+                        Row(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Hold Back to take a screenshot", fontSize = 15.sp, color = Color.White)
+                                Text(if (shots) "Hold Back for a second on any screen. Pictures are kept for 30 days for the website."
+                                     else "Off: Back works as normal.", fontSize = 12.sp, color = TextDim)
+                            }
+                            Text(if (shots) "On" else "Off", fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                                color = if (shots) Accent else TextDim)
+                        }
+                    }
+                }
             } else {
                 Text("Change login details", fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
                 Text("Saving reconnects with the new details. Favourites and My List are kept per login.", fontSize = 13.sp, color = TextDim)

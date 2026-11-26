@@ -659,7 +659,10 @@ class PlayerActivity : ComponentActivity() {
     /** Back was pressed while the on-screen controls were showing: it only hides them. */
     private var backHidesControls = false
 
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+        Shots.intercept(this, event) { handleKey(it) } ?: handleKey(event)
+
+    private fun handleKey(event: KeyEvent): Boolean {
         if (event.keyCode == KeyEvent.KEYCODE_BACK && overlay == null) {
             if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) backHidesControls = view.isControllerFullyVisible
             if (backHidesControls) {

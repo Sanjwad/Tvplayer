@@ -52,6 +52,15 @@ export default {
       try { return await share(req, env, path.slice("/v1/share/".length)); }
       catch (e) { return json({ error: String(e && e.message || e) }, 400); }
     }
+    // Screenshots from TV Pal Test (for the website). Collected by the "Fetch screenshots" GitHub Action.
+    if (path === "/v1/shot" && req.method === "POST") {
+      const buf = await req.arrayBuffer();
+      const b = new Uint8Array(buf);
+      if (b.length < 1000 || b.length > 5_000_000 || b[0] !== 0xFF || b[1] !== 0xD8) return json({ error: "not a picture" }, 400);
+      const k = "shot:" + new Date().toISOString().replace(/[:.]/g, "-") + "-" + Math.random().toString(36).slice(2, 6);
+      await env.SYNC.put(k, buf, { expirationTtl: 30 * 86400 });
+      return json({ ok: true });
+    }
     const m = path.match(/^\/v1\/([0-9a-f]{64})$/);
     if (!m) return json({ error: "not found" }, 404);
     const key = m[1];
