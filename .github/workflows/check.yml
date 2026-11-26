@@ -1,0 +1,18 @@
+name: namecheck
+on: push
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          printf "%-16s %-10s %-10s\n" name ".com" ".ca"
+          while read n; do
+            [ -z "$n" ] && continue
+            c=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "https://rdap.verisign.com/com/v1/domain/$n.com" || true)
+            a=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "https://rdap.ca.fury.ca/rdap/domain/$n.ca" || true)
+            fc=$([ "$c" = 404 ] && echo FREE || ([ "$c" = 200 ] && echo taken || echo "?$c"))
+            fa=$([ "$a" = 404 ] && echo FREE || ([ "$a" = 200 ] && echo taken || echo "?$a"))
+            printf "%-16s %-10s %-10s\n" "$n" "$fc" "$fa"
+            sleep 1
+          done < names.txt
