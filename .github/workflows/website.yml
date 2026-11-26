@@ -53,4 +53,4 @@ jobs:
         run: |
           sleep 15
           curl -sS -o /dev/null -w "home %{http_code}\n" --max-time 20 https://tvpal.ca || true
-          curl -sS --max-time 20 https://tvpal.ca/api/prices; echo
+          curl -sS --max-time 20 https://tvpal.ca/api/prices || echo "(not reachable yet: new domains can take a while)"; echo
