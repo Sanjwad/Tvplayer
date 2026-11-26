@@ -72,6 +72,15 @@
   .tv .posters span:first-child{outline:2px solid var(--ember);outline-offset:1px}
   .ridge{position:absolute;left:0;right:0;bottom:-1px;z-index:1;width:100%;height:auto;display:block}
   .hero-foot{position:relative;z-index:2;height:90px}
+  .slim{background:linear-gradient(180deg,#18222C 0%,var(--cloud) 70%,#2E4558 100%)}
+  .slim::before{display:none}
+  .slim .ridge{opacity:.9}
+  .slim .hero-foot{height:36px}
+  nav ul li{white-space:nowrap}
+  .slim .hero{padding:24px 0 8px}
+  .slim .hero h1{font-size:clamp(2.6rem,6vw,4.4rem);max-width:none}
+  nav ul a[aria-current]{opacity:1;text-decoration:underline;text-underline-offset:6px;text-decoration-thickness:2px}
+  main section:first-child{padding-top:56px}
 
   /* ---------- sections ---------- */
   section{padding:96px 0}
@@ -122,7 +131,8 @@
   footer strong{color:var(--ink)}
 
   @media (max-width:820px){
-    nav ul{display:none}
+    nav{flex-wrap:wrap;row-gap:14px}
+    nav ul{width:100%;gap:16px;overflow-x:auto;font-size:.95rem;padding-bottom:4px}
     .features,.prices,.steps,.providers .split{grid-template-columns:1fr}
     section{padding:72px 0}
     th,td{padding:12px 12px}
@@ -136,18 +146,19 @@
     <nav aria-label="Main">
       <a class="brand" href="/"><img src="/icon.png" alt="">TV Pal</a>
       <ul>
-        <li><a href="#features">Features</a></li>
-        <li><a href="#pricing">Pricing</a></li>
-        <li><a href="#install">Install</a></li>
-        <li><a href="#providers">For providers</a></li>
+        <li><a href="/" aria-current="page">Home</a></li>
+        <li><a href="/features">Features</a></li>
+        <li><a href="/pricing">Pricing</a></li>
+        <li><a href="/install">Install</a></li>
+        <li><a href="/providers">Providers</a></li>
       </ul>
     </nav>
     <div class="hero">
       <h1>Your TV's new best pal.</h1>
       <p>TV Pal turns your provider's login into a proper TV guide, movie and show shelves with real posters and ratings, and a watchlist that follows you from room to room.</p>
       <div class="ctas">
-        <a class="btn btn-warm" href="#install">Install TV Pal</a>
-        <a class="btn btn-line" href="#pricing">See pricing</a>
+        <a class="btn btn-warm" href="/install">Install TV Pal</a>
+        <a class="btn btn-line" href="/pricing">See pricing</a>
       </div>
     </div>
     <div class="stage">
@@ -161,106 +172,6 @@
   </svg>
   <div class="hero-foot"></div>
 </header>
-
-<main>
-  <section id="features">
-    <div class="wrap">
-      <h2>Everything in one place</h2>
-      <p class="lede">Bring the login your IPTV provider gave you. TV Pal does the rest on your Android TV, NVIDIA Shield, Fire TV Stick or Google TV device.</p>
-      <div class="features">
-        <div class="feature">
-          <h3>Live TV with a real guide</h3>
-          <p>Channel groups, favourites and a full programme guide. Missed something? Jump back with catch-up on channels that support it.</p>
-        </div>
-        <div class="feature">
-          <h3>Movies and shows that look the part</h3>
-          <p>Posters, IMDb and TMDB ratings, cast pages, trivia and "more like this", even when your provider's own listings are bare.</p>
-        </div>
-        <div class="feature">
-          <h3>Your list follows you</h3>
-          <p>My List, favourite channels and where you're up to in every show stay the same on every TV in the house. Kids can keep their own.</p>
-        </div>
-        <div class="feature">
-          <h3>Pick up where you left off</h3>
-          <p>Continue watching, the next episode plays on its own, and a long press marks a whole season as watched.</p>
-        </div>
-        <div class="feature">
-          <h3>Works with your provider</h3>
-          <p>Xtream Codes logins and Stalker (MAC address) portals, so it works with most providers out of the box.</p>
-        </div>
-        <div class="feature">
-          <h3>Keeps playing</h3>
-          <p>When a stream hiccups, TV Pal quietly reconnects and carries on, instead of stopping with an error.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="compare">
-    <div class="wrap">
-      <h2>Coming from TiVimate?</h2>
-      <p class="lede">You'll feel at home on live TV. Movies and shows are where TV Pal pulls ahead.</p>
-      <div class="features">
-        <div class="feature"><h3>What stays the same</h3><p>Channel groups, favourites, a full guide and catch-up, all driven by the remote the way you're used to. Your Xtream or MAC login works as it is.</p></div>
-        <div class="feature"><h3>What's new</h3><p>Movie and show pages with ratings, cast and trivia; a list that syncs between TVs; the next episode starting by itself; and a long press to mark a season watched.</p></div>
-      </div>
-    </div>
-  </section>
-
-  <section id="pricing">
-    <div class="wrap">
-      <h2>Simple pricing</h2>
-      <p class="lede">One account covers up to five TVs in your home.</p>
-      <div class="prices">
-        <div class="price">
-          <h3>Monthly</h3>
-          <div class="amount"><span data-price="monthly">$2</span> <small>CAD a month</small></div>
-          <ul><li>All features</li><li>Up to 5 TVs</li><li>Cancel any time</li></ul>
-          <button class="btn" data-buy="monthly">Get monthly</button>
-        </div>
-        <div class="price best">
-          <span class="tag">Best value</span>
-          <h3>Lifetime</h3>
-          <div class="amount"><span data-price="lifetime">$40</span> <small>CAD once</small></div>
-          <ul><li>All features, for good</li><li>Up to 5 TVs</li><li>Every future update</li></ul>
-          <button class="btn btn-warm" data-buy="lifetime">Get lifetime</button>
-        </div>
-      </div>
-      <p class="note" id="buy-msg" role="status"></p>
-      <p class="note">Plus HST where it applies. Already bought? <a href="/account.html">Manage your account</a>.</p>
-      <p class="note">TV Pal is a player. It doesn't include any channels, movies or shows: you'll need your own subscription from an IPTV provider.</p>
-    </div>
-  </section>
-
-  <section id="install" class="compare">
-    <div class="wrap">
-      <h2>Install in three steps</h2>
-      <p class="lede">Works on Android TV, Google TV, NVIDIA Shield, Onn and Amazon Fire TV devices.</p>
-      <ol class="steps">
-        <li><h3>Get Downloader</h3><p>Install the free <strong>Downloader</strong> app from your TV's app store.</p></li>
-        <li><h3>Enter the address</h3><p>In Downloader, type <code>tvpal.ca/get</code> and install TV Pal when it finishes.</p></li>
-        <li><h3>Sign in with your provider</h3><p>Open TV Pal and enter the server, username and password (or portal and MAC) your provider gave you.</p></li>
-      </ol>
-    </div>
-  </section>
-
-  <section id="providers" class="providers">
-    <div class="wrap split-wrap">
-      <div class="split">
-        <div>
-          <h2>For providers</h2>
-          <p class="lede">Recommend TV Pal to your customers and give them a discount code of their own. You'll see every sign-up that comes through your code.</p>
-          <a class="btn btn-warm" href="mailto:hello@tvpal.ca?subject=Provider%20referral%20code">Ask for a referral code</a>
-        </div>
-        <ul>
-          <li>A personal code and link for your customers</li>
-          <li>A simple page showing your sign-ups</li>
-          <li>Works with Xtream and Stalker services</li>
-        </ul>
-      </div>
-    </div>
-  </section>
-</main>
 
 <footer>
   <div class="wrap">
