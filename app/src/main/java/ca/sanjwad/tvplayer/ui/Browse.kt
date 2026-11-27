@@ -977,37 +977,51 @@ private fun ResumeMenu(
 
 private data class ShowStatus(val badge: String, val seasonId: String?, val group: Int)
 
+/** The last worked-out status of each saved show, kept on the TV so My List is right straight after a restart. */
+private object ShowStatusStore {
+    fun load(ctx: android.content.Context): MutableMap<String, ShowStatus> {
+        val out = HashMap<String, ShowStatus>()
+        val raw = ctx.getSharedPreferences("mylist_status", android.content.Context.MODE_PRIVATE).getString("s", null) ?: return out
+        runCatching {
+            val o = org.json.JSONObject(raw)
+            for (k in o.keys()) { val a = o.getJSONArray(k)
+                out[k] = ShowStatus(a.getString(0), a.optString(1).ifEmpty { null }, a.getInt(2)) }
+        }
+        return out
+    }
+    fun save(ctx: android.content.Context, m: Map<String, ShowStatus>) {
+        val o = org.json.JSONObject()
+        for ((k, v) in m) o.put(k, org.json.JSONArray().put(v.badge).put(v.seasonId ?: "").put(v.group))
+        ctx.getSharedPreferences("mylist_status", android.content.Context.MODE_PRIVATE).edit().putString("s", o.toString()).apply()
+    }
+}
+
 @Composable
 fun MyListScreen(onOpen: (type: String, item: VodItem, seasonId: String?) -> Unit, movieType: String = "vod", showType: String = "series") {
     val saved = Library.myList
     val watched = Library.watched
-    val seasonsById = remember { mutableStateMapOf<String, List<Season>>() }
     val (hero, setHero) = rememberHero()
-
-    // Fetch each saved show's episode list (cached for the session) to work out what's next.
+    val listCtx = LocalContext.current
+    // Episode lists are kept fresh in the background (EpisodeCheck); this only tops up anything
+    // missing or more than half an hour old. Until a list arrives, the last known status is shown.
+    val epVersion = ca.sanjwad.tvplayer.EpisodeCheck.version.intValue
     LaunchedEffect(saved.map { it.item.id }) {
-        for (sv in saved.filter { it.item.isSeries }) {
-            val id = sv.item.id
-            val cached = Session.seasonCache[id]
-            if (cached != null) { seasonsById[id] = cached; continue }
-            val list = withContext(Dispatchers.IO) {
-                runCatching { Session.client?.seasons(sv.type, sv.item) }.getOrNull()
-            }
-            if (list == null) continue
-            Session.seasonCache[id] = list
-            seasonsById[id] = list
-        }
+        withContext(Dispatchers.IO) { runCatching { ca.sanjwad.tvplayer.EpisodeCheck.refresh(maxAgeMs = 30 * 60_000L) } }
     }
+    val lastKnown = remember { ShowStatusStore.load(listCtx) }
 
     fun status(item: VodItem): ShowStatus? {
-        val seasons = seasonsById[item.id] ?: return null
+        epVersion
+        val seasons = Session.seasonCache[item.id] ?: return lastKnown[item.id]
         val last = watched[item.id]
         val next = Library.nextEpisode(seasons, last)
-        return when {
+        val st = when {
             next == null -> ShowStatus("Caught up", null, 2)
             last == null -> ShowStatus("S${next.third.first} E${next.third.second}", next.first.id, 1)
             else -> ShowStatus("S${next.third.first} E${next.third.second}", next.first.id, 0)
         }
+        if (lastKnown[item.id] != st) { lastKnown[item.id] = st; ShowStatusStore.save(listCtx, lastKnown) }
+        return st
     }
 
     val shows = saved.filter { it.item.isSeries }

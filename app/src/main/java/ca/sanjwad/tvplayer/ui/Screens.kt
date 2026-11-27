@@ -213,7 +213,7 @@ fun App() {
             when {
                 screen == "setup" -> SetupScreen(prefs, hasSaved = prefs.isConfigured,
                     onCancel = { screen = if (Session.client != null) "home" else "connect" }) {
-                    live.reset(); movies.reset(); series.reset(); Session.client = null; Session.seasonCache.clear()
+                    live.reset(); movies.reset(); series.reset(); Session.client = null; Session.seasonCache.clear(); ca.sanjwad.tvplayer.EpisodeCheck.clear()
                     stack.clear(); Session.vodTypes.clear()
                     screen = "connect"
                 }

@@ -10,6 +10,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Session.appContext = applicationContext
+        EpisodeCheck.start()
         // Lighter images: posters decode in half the memory (RGB_565, unnoticeable on posters), a big
         // disk cache so they come back instantly next time, and no fade-in work.
         coil.Coil.setImageLoader(
