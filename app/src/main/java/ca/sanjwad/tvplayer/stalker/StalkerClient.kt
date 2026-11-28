@@ -900,6 +900,7 @@ class StalkerClient(
         val summary = mutableListOf("PLAY $movieId/$seasonId/$episodeId — tried in order (watchdog sent, IPv4 first):",
             "  file list + watchdog took ${secs()}")
         var firstUrl: String? = null
+        var probes = 0; var missing = 0
         val seen = HashSet<String>()
         for ((name, get) in tries) {
             val u = runCatching { get() }.getOrNull()
@@ -919,6 +920,8 @@ class StalkerClient(
             // Same link, different identities: the video server may only let some players in.
             for ((uaName, ua) in uaCandidates) {
                 val (ok, res) = probe(u, ua)
+                probes++
+                if (Regex("(^|→)404\\b").containsMatchIn(res) || res.contains("No such file", true)) missing++
                 summary += "     as $uaName ⇒ $res  [${secs()}]"
                 if (ok) {
                     videoUa = ua; provenUa = ua
@@ -928,6 +931,13 @@ class StalkerClient(
                     return u
                 }
             }
+        }
+        if (probes > 0 && missing == probes) {
+            // Every address the portal gave leads to "file not found" on the provider's video server.
+            summary += "  ✗ the provider's video server doesn't have this file"
+            PortalLog.pinned = summary
+            summary.forEach { PortalLog.add(it) }
+            throw MissingVideo()
         }
         summary += "  ✗ nothing worked; playing the first link anyway"
         PortalLog.pinned = summary
@@ -983,3 +993,9 @@ class StalkerClient(
         return if (u.endsWith("stream=") || u.endsWith("stream=&")) null else u
     }
 }
+
+/** The provider lists this title, but its video server says the file isn't there. */
+class MissingVideo : IOException(MISSING_VIDEO_TEXT)
+
+const val MISSING_VIDEO_TEXT = "Your provider doesn't have this video on their server right now, so it can't play. " +
+    "Try another episode, or let your provider know it's missing."
