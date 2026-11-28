@@ -88,7 +88,7 @@ fun CatchupScreen(channel: Channel, onPlay: (Programme) -> Unit, onClose: () -> 
     LaunchedEffect(channel.id) {
         val r = withContext(Dispatchers.IO) { runCatching { Session.client?.catchupProgrammes(channel).orEmpty() } }
         r.onSuccess { progs = it; if (it.isEmpty()) error = "No catch-up programmes listed for this channel." }
-            .onFailure { progs = emptyList(); error = it.message }
+            .onFailure { progs = emptyList(); error = ca.sanjwad.tvplayer.userMessage(it, "Couldn't load past programmes for this channel.") }
     }
     val list = progs
     val days = list.orEmpty().groupBy { Catchup.dayLabel(it.start) }.toList().reversed() // newest day first

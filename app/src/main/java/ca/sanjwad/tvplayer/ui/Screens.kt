@@ -470,7 +470,7 @@ fun SetupScreen(prefs: Prefs, hasSaved: Boolean, onCancel: () -> Unit, onSaved: 
                 Spacer(Modifier.height(14.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     TvButton("Change login details", onClick = { editing = true }, modifier = Modifier.focusRequester(fr))
-                    if (prefs.isStalker) TvButton("Portal log", onClick = { showLog = true })
+                    if (prefs.isStalker && ca.sanjwad.tvplayer.BuildConfig.TEST_BUILD) TvButton("Portal log", onClick = { showLog = true })
                     TvButton("Check for updates", onClick = { ca.sanjwad.tvplayer.Updater.manualCheck.intValue++ })
                 }
                 ca.sanjwad.tvplayer.Updater.manualStatus.value?.let {
@@ -769,7 +769,7 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
             }
             onDone()
         }
-            .onFailure { error = it.message ?: "Couldn't connect." }
+            .onFailure { error = ca.sanjwad.tvplayer.userMessage(it, "Couldn't connect to your provider. Check your internet and try again.") }
     }
     LaunchedEffect(error) { if (error != null) focusSoon(fr) }
     if (showLog) {
@@ -837,7 +837,7 @@ fun ConnectScreen(prefs: Prefs, onDone: () -> Unit, onEdit: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TvButton("Try again", onClick = { attempt++ }, modifier = Modifier.focusRequester(fr))
                 TvButton("Edit details", onClick = onEdit)
-                if (prefs.isStalker) TvButton("Portal log", onClick = { showLog = true })
+                if (prefs.isStalker && ca.sanjwad.tvplayer.BuildConfig.TEST_BUILD) TvButton("Portal log", onClick = { showLog = true })
             }
         }
     }
@@ -966,7 +966,7 @@ fun LiveScreen(s: LiveState) {
                     Library.noteCategories("live", g)
                     s.genres = listOf(Genre("*", "All channels")) + g.filter { it.id != "*" }
                     s.all = ch; s.loaded = true
-                }.onFailure { s.error = it.message }
+                }.onFailure { s.error = ca.sanjwad.tvplayer.userMessage(it, "Couldn't load this from your provider. Try again in a minute.") }
             } finally { s.loading = false }
         }
     }
@@ -1155,7 +1155,7 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
                     r.onSuccess { pg ->
                         s.items = if (reset) pg.items else s.items + pg.items
                         s.page = p; s.total = if (pg.items.isEmpty()) s.items.size else pg.totalItems
-                    }.onFailure { s.error = it.message }
+                    }.onFailure { s.error = ca.sanjwad.tvplayer.userMessage(it, "Couldn't load this from your provider. Try again in a minute.") }
                 }
             } finally { if (s.job == null || s.job === me) s.loading = false }
         }
@@ -1166,7 +1166,7 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
             val r = withContext(Dispatchers.IO) {
                 runCatching { (Session.client ?: error("Not connected")).browseCategories(s.kind) }
             }
-            r.exceptionOrNull()?.let { s.error = it.message }
+            r.exceptionOrNull()?.let { s.error = ca.sanjwad.tvplayer.userMessage(it, "Couldn't load this from your provider. Try again in a minute.") }
             r.getOrNull()?.let { (type, cats) ->
                 s.type = type
                 Session.vodTypes[s.kind] = type
@@ -1195,7 +1195,7 @@ fun VodScreen(s: VodState, onOpen: (VodItem) -> Unit) {
             if (s.type != "vod") list
             else if (s.kind == "series") list.filter { it.isSeries } else list.filterNot { it.isSeries }
         }
-        r.exceptionOrNull()?.let { s.error = it.message }
+        r.exceptionOrNull()?.let { s.error = ca.sanjwad.tvplayer.userMessage(it, "Couldn't load this from your provider. Try again in a minute.") }
         s.searching = false
     }
 
@@ -1335,7 +1335,7 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
                 val i = Intent(ctx, PlayerActivity::class.java).putExtra("url", it).putExtra("title", title).putExtra("cmd", cmd)
                 extras.forEach { (k, v) -> if (v != null) i.putExtra(k, v) }
                 ctx.startActivity(i)
-            }.onFailure { msg = it.message ?: "Couldn't start playback." }
+            }.onFailure { msg = ca.sanjwad.tvplayer.userMessage(it, "Couldn't start this. Try again in a minute, or pick something else.") }
         }
     }
 
@@ -1372,7 +1372,7 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
                     runCatching { (Session.client ?: error("Not connected")).seasons(type, item) }
                 }
                 r.onSuccess { seasons = it; Session.seasonCache[item.id] = it; if (it.isEmpty()) msg = "No seasons found for this show." }
-                    .onFailure { msg = it.message; seasons = emptyList() }
+                    .onFailure { msg = ca.sanjwad.tvplayer.userMessage(it, "Couldn't load the seasons from your provider. Try again in a minute."); seasons = emptyList() }
             }
             // Open on the season with the next episode to watch (or the one asked for).
             val ss = seasons.orEmpty()
@@ -1395,7 +1395,7 @@ fun DetailScreen(type: String, start: VodItem, startSeasonId: String? = null, on
         val r = withContext(Dispatchers.IO) {
             runCatching { (Session.client ?: error("Not connected")).episodes(type, item, s) }
         }
-        r.onSuccess { episodes = it }.onFailure { msg = it.message; episodes = emptyList() }
+        r.onSuccess { episodes = it }.onFailure { msg = ca.sanjwad.tvplayer.userMessage(it, "Couldn't load the episodes from your provider. Try again in a minute."); episodes = emptyList() }
     }
 
     // Fill in missing episode names, descriptions, pictures and runtimes from TMDB.

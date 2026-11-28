@@ -336,7 +336,9 @@ class PlayerActivity : ComponentActivity() {
                 val log = synchronized(trail) { trail.takeLast(6).joinToString("\n") }
                 android.app.AlertDialog.Builder(this@PlayerActivity)
                     .setTitle("Playback problem")
-                    .setMessage("$detail\n\nWhat happened:\n$log")
+                    .setMessage(if (ca.sanjwad.tvplayer.BuildConfig.TEST_BUILD) "$detail\n\nWhat happened:\n$log"
+                        else "TV Pal couldn't play this. Check your internet connection and try again in a minute. " +
+                            "If it keeps happening, your provider may be having trouble.")
                     .setPositiveButton("OK", null)
                     .show()
             }
@@ -434,7 +436,7 @@ class PlayerActivity : ComponentActivity() {
                 asHls = false
                 play(if (asTs) it.removeSuffix(".m3u8") + ".ts" else it)
             }
-                .onFailure { toast(it.message ?: "Couldn't start this channel") }
+                .onFailure { toast(userMessage(it, "Couldn't start this channel. Try again in a minute.")) }
             // Show what's on now, once the guide answers.
             val now = withContext(Dispatchers.IO) { runCatching { client.nowNext(ch) }.getOrNull()?.firstOrNull() }
             if (!retry && now != null && liveIndex >= 0 && Session.channels.getOrNull(liveIndex)?.id == ch.id) {
@@ -661,7 +663,7 @@ class PlayerActivity : ComponentActivity() {
                     .putExtra("key", "m:${item.id}").putExtra("subtitle", item.year).putExtra("year", item.year)
                     .putExtra("poster", item.poster ?: item.backdrop).putExtra("plot", item.description).putExtra("is_series", "0"))
                 finish()
-            }.onFailure { toast(it.message ?: "Couldn't start ${item.name}") }
+            }.onFailure { toast(userMessage(it, "Couldn't start ${item.name}. Try again in a minute.")) }
         }
     }
 
